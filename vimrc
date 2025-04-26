@@ -26,6 +26,7 @@ colorschem habamax
 
 call plug#begin()
   Plug 'preservim/nerdtree'
+  Plug 'tpope/vim-surround'
   Plug 'itchyny/lightline.vim'
 call plug#end()
 
