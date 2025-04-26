@@ -67,8 +67,7 @@ let s:plug_src = 'https://github.com/junegunn/vim-plug.git'
 let s:plug_tab = get(s:, 'plug_tab', -1)
 let s:plug_buf = get(s:, 'plug_buf', -1)
 let s:mac_gui = has('gui_macvim') && has('gui_running')
-let s:nvim = has('nvim')
-let s:vim8 = !s:nvim && has('job')
+let s:vim8 = has('job')
 let s:me = resolve(expand('<sfile>:p'))
 let s:base_spec = { 'branch': '', 'frozen': 0 }
 let s:TYPE = {
@@ -191,8 +190,6 @@ function! plug#begin(...)
     let home = s:path(s:plug_fnamemodify(s:plug_expand(a:1), ':p'))
   elseif exists('g:plug_home')
     let home = s:path(g:plug_home)
-  elseif has('nvim')
-    let home = stdpath('data') . '/plugged'
   elseif !empty(&rtp)
     let home = s:path(split(&rtp, ',')[0]) . '/plugged'
   else
@@ -330,9 +327,7 @@ function! plug#end()
       if !empty(types)
         augroup filetypedetect
         call s:source(s:rtp(plug), 'ftdetect/**/*.vim', 'after/ftdetect/**/*.vim')
-        if has('nvim')
-          call s:source(s:rtp(plug), 'ftdetect/**/*.lua', 'after/ftdetect/**/*.lua')
-        endif
+        " Lua support removed - Neovim not supported
         augroup END
       endif
       for type in types
@@ -380,9 +375,7 @@ endfunction
 
 function! s:load_plugin(spec)
   call s:source(s:rtp(a:spec), 'plugin/**/*.vim', 'after/plugin/**/*.vim')
-  if has('nvim')
-    call s:source(s:rtp(a:spec), 'plugin/**/*.lua', 'after/plugin/**/*.lua')
-  endif
+  " Lua support removed - Neovim not supported
 endfunction
 
 function! s:reload_plugins()
@@ -552,9 +545,7 @@ function! s:lod(names, types, ...)
     let rtp = s:rtp(g:plugs[name])
     for dir in a:types
       call s:source(rtp, dir.'/**/*.vim')
-      if has('nvim')
-        call s:source(rtp, dir.'/**/*.lua')
-      endif
+      " Lua support removed - Neovim not supported
     endfor
     if a:0
       if !s:source(rtp, a:1) && !empty(s:glob(rtp, a:2))
@@ -858,11 +849,6 @@ function! s:is_updated(dir)
 endfunction
 
 function! s:do(pull, force, todo)
-  if has('nvim')
-    " Reset &rtp to invalidate Neovim cache of loaded Lua modules
-    " See https://github.com/junegunn/vim-plug/pull/1157#issuecomment-1809226110
-    let &rtp = &rtp
-  endif
   for [name, spec] in items(a:todo)
     if !isdirectory(spec.dir)
       continue
@@ -1024,9 +1010,7 @@ function! s:update_impl(pull, force, args) abort
     endtry
   endif
 
-  " Neovim 0.9+ is required, so we don't need to check for jobwait
-
-  let use_job = s:nvim || s:vim8
+  let use_job = s:vim8
   let python = (has('python') || has('python3')) && !use_job
   let ruby = has('ruby') && !use_job && threads > 1 && s:check_ruby()
 
@@ -1177,16 +1161,12 @@ function! s:mark_aborted(name, message)
 endfunction
 
 function! s:job_abort(cancel)
-  if (!s:nvim && !s:vim8) || !exists('s:jobs')
+  if !s:vim8 || !exists('s:jobs')
     return
   endif
 
   for [name, j] in items(s:jobs)
-    if s:nvim
-      silent! call jobstop(j.jobid)
-    elseif s:vim8
-      silent! call job_stop(j.jobid)
-    endif
+    silent! call job_stop(j.jobid)
     if j.new
       call s:rm_rf(g:plugs[name].dir)
     endif
@@ -1254,11 +1234,7 @@ function! s:job_cb(fn, job, ch, data)
   call call(a:fn, [a:job, a:data])
 endfunction
 
-function! s:nvim_cb(job_id, data, event) dict abort
-  return (a:event == 'stdout' || a:event == 'stderr') ?
-    \ s:job_cb('s:job_out_cb',  self, 0, join(a:data, "\n")) :
-    \ s:job_cb('s:job_exit_cb', self, 0, a:data)
-endfunction
+" Neovim callback removed
 
 function! s:spawn(name, spec, queue, opts)
   let job = { 'name': a:name, 'spec': a:spec, 'running': 1, 'error': 0, 'lines': [''],
@@ -1267,25 +1243,7 @@ function! s:spawn(name, spec, queue, opts)
   let argv = type(Item) == s:TYPE.funcref ? call(Item, [a:spec]) : Item
   let s:jobs[a:name] = job
 
-  if s:nvim
-    if has_key(a:opts, 'dir')
-      let job.cwd = a:opts.dir
-    endif
-    call extend(job, {
-    \ 'on_stdout': function('s:nvim_cb'),
-    \ 'on_stderr': function('s:nvim_cb'),
-    \ 'on_exit':   function('s:nvim_cb'),
-    \ })
-    let jid = s:plug_call('jobstart', argv, job)
-    if jid > 0
-      let job.jobid = jid
-    else
-      let job.running = 0
-      let job.error   = 1
-      let job.lines   = [jid < 0 ? argv[0].' is not executable' :
-            \ 'Invalid arguments (or job table is full)']
-    endif
-  elseif s:vim8
+  if s:vim8
     let cmd = join(map(copy(argv), 'plug#shellescape(v:val, {"script": 0})'))
     if has_key(a:opts, 'dir')
       let cmd = s:with_cd(cmd, a:opts.dir, 0)
@@ -1397,7 +1355,7 @@ endfunction
 
 function! s:tick()
   let pull = s:update.pull
-  let prog = s:progress_opt(s:nvim || s:vim8)
+  let prog = s:progress_opt(s:vim8)
 while 1 " Without TCO, Vim stack is bound to explode
   if empty(s:update.todo)
     if empty(s:jobs) && !s:update.fin
@@ -1489,7 +1447,7 @@ import time
 import traceback
 import vim
 
-G_NVIM = vim.eval("has('nvim')") == '1'
+G_NVIM = False
 G_PULL = vim.eval('s:update.pull') == '1'
 G_RETRIES = int(vim.eval('get(g:, "plug_retries", 2)')) + 1
 G_TIMEOUT = int(vim.eval('get(g:, "plug_timeout", 60)'))
@@ -2157,12 +2115,6 @@ function! s:system(cmd, ...)
   try
     let [sh, shellcmdflag, shrd] = s:chsh(1)
     if type(a:cmd) == s:TYPE.list
-      " Neovim's system() supports list argument to bypass the shell
-      " but it cannot set the working directory for the command.
-      " Assume that the command does not rely on the shell.
-      if has('nvim') && a:0 == 0
-        return system(a:cmd)
-      endif
       let cmd = join(map(copy(a:cmd), 'plug#shellescape(v:val, {"shell": &shell, "script": 0})'))
     else
       let cmd = a:cmd
