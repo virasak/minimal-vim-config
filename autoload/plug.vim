@@ -76,41 +76,19 @@ let s:TYPE = {
 let s:loaded = get(s:, 'loaded', {})
 let s:triggers = get(s:, 'triggers', {})
 
-function! s:isabsolute(dir) abort
-  return a:dir =~# '^/'
-endfunction
-
-function! s:plug_call(fn, ...)
-  return call(a:fn, a:000)
-endfunction
-
-function! s:plug_getcwd()
-  return s:plug_call('getcwd')
-endfunction
-
-function! s:plug_fnamemodify(fname, mods)
-  return s:plug_call('fnamemodify', a:fname, a:mods)
-endfunction
-
-function! s:plug_expand(fmt)
-  return s:plug_call('expand', a:fmt, 1)
-endfunction
-
-function! s:plug_tempname()
-  return s:plug_call('tempname')
-endfunction
+" One-line functions inlined
 
 function! plug#begin(...)
   if a:0 > 0
-    let home = s:path(s:plug_fnamemodify(s:plug_expand(a:1), ':p'))
+    let home = substitute(fnamemodify(expand(a:1, 1), ':p'), '[\/]\+$', '', '')
   elseif exists('g:plug_home')
-    let home = s:path(g:plug_home)
+    let home = substitute(g:plug_home, '[\/]\+$', '', '')
   elseif !empty(&rtp)
-    let home = s:path(split(&rtp, ',')[0]) . '/plugged'
+    let home = substitute(split(&rtp, ',')[0], '[\/]\+$', '', '') . '/plugged'
   else
     return s:err('Unable to determine plug home. Try calling plug#begin() with a path argument.')
   endif
-  if s:plug_fnamemodify(home, ':t') ==# 'plugin' && s:plug_fnamemodify(home, ':h') ==# s:first_rtp
+  if fnamemodify(home, ':t') ==# 'plugin' && fnamemodify(home, ':h') ==# s:first_rtp
     return s:err('Invalid plug home. '.home.' is a standard Vim runtime path and is not allowed.')
   endif
 
@@ -128,12 +106,13 @@ function! s:define_commands()
   if !executable('git')
     return s:err('`git` executable not found. Most commands will not be available. To suppress this message, prepend `silent!` to `call plug#begin(...)`.')
   endif
-  command! -nargs=* -bar -bang -complete=customlist,s:names PlugInstall call s:install(<bang>0, [<f-args>])
-  command! -nargs=* -bar -bang -complete=customlist,s:names PlugUpdate  call s:update(<bang>0, [<f-args>])
+  command! -nargs=* -bar -bang -complete=customlist,s:names PlugInstall call s:update_impl(0, <bang>0, [<f-args>])
+  command! -nargs=* -bar -bang -complete=customlist,s:names PlugUpdate  call s:update_impl(1, <bang>0, [<f-args>])
   command! -nargs=0 -bar -bang PlugClean call s:clean(<bang>0)
-  command! -nargs=0 -bar PlugUpgrade if s:upgrade() | execute 'source' s:esc(s:me) | endif
+  command! -nargs=0 -bar PlugUpgrade if s:upgrade() | execute 'source' escape(s:me, ' ') | endif
   command! -nargs=0 -bar PlugStatus  call s:status()
   command! -nargs=0 -bar PlugDiff    call s:diff()
+  command! -nargs=0 -bar PlugRetry   call s:retry()
   command! -nargs=? -bar -bang -complete=file PlugSnapshot call s:snapshot(<bang>0, <f-args>)
 endfunction
 
@@ -146,14 +125,14 @@ function! s:to_s(v)
 endfunction
 
 function! s:glob(from, pattern)
-  return s:lines(globpath(a:from, a:pattern))
+  return split(globpath(a:from, a:pattern), "[\r\n]")
 endfunction
 
 function! s:source(from, ...)
   let found = 0
   for pattern in a:000
     for vim in s:glob(a:from, pattern)
-      execute 'source' s:esc(vim)
+      execute 'source' escape(vim, ' ')
       let found = 1
     endfor
   endfor
@@ -299,9 +278,7 @@ function! s:reload_plugins()
   endfor
 endfunction
 
-function! s:trim(str)
-  return substitute(a:str, '[\/]\+$', '', '')
-endfunction
+" trim function inlined
 
 function! s:version_requirement(val, min)
   for idx in range(0, len(a:min) - 1)
@@ -318,12 +295,10 @@ function! s:progress_opt(base)
 endfunction
 
 function! s:rtp(spec)
-  return s:path(a:spec.dir . get(a:spec, 'rtp', ''))
+  return substitute(a:spec.dir . get(a:spec, 'rtp', ''), '[\/]\+$', '', '')
 endfunction
 
-function! s:path(path)
-  return s:trim(a:path)
-endfunction
+" path function inlined
 
 function! s:dirpath(path)
   return substitute(a:path, '[/\\]*$', '/', '')
@@ -345,29 +320,23 @@ function! s:warn(cmd, msg)
   echohl None
 endfunction
 
-function! s:esc(path)
-  return escape(a:path, ' ')
-endfunction
-
-function! s:escrtp(path)
-  return escape(a:path, ' ,')
-endfunction
+" esc and escrtp functions inlined
 
 function! s:remove_rtp()
   for name in s:loaded_names()
     let rtp = s:rtp(g:plugs[name])
-    execute 'set rtp-='.s:escrtp(rtp)
+    execute 'set rtp-='.escape(rtp, ' ,')
     let after = globpath(rtp, 'after')
     if isdirectory(after)
-      execute 'set rtp-='.s:escrtp(after)
+      execute 'set rtp-='.escape(after, ' ,')
     endif
   endfor
 endfunction
 
 function! s:reorg_rtp()
   if !empty(s:first_rtp)
-    execute 'set rtp-='.s:first_rtp
-    execute 'set rtp-='.s:last_rtp
+    execute 'set rtp-='.escape(s:first_rtp, ' ,')
+    execute 'set rtp-='.escape(s:last_rtp, ' ,')
   endif
 
   " &rtp is modified from outside
@@ -386,8 +355,8 @@ function! s:reorg_rtp()
   let s:prtp   = &rtp
 
   if !empty(s:first_rtp)
-    execute 'set rtp^='.s:first_rtp
-    execute 'set rtp+='.s:last_rtp
+    execute 'set rtp^='.escape(s:first_rtp, ' ,')
+    execute 'set rtp+='.escape(s:last_rtp, ' ,')
   endif
 endfunction
 
@@ -518,9 +487,9 @@ function! plug#(repo, ...)
   endif
 
   try
-    let repo = s:trim(a:repo)
+    let repo = substitute(a:repo, '[\/]\+$', '', '')
     let opts = a:0 == 1 ? s:parse_options(a:1) : s:base_spec
-    let name = get(opts, 'as', s:plug_fnamemodify(repo, ':t:s?\.git$??'))
+    let name = get(opts, 'as', fnamemodify(repo, ':t:s?\.git$??'))
     let spec = extend(s:infer_properties(name, repo), opts)
     if !has_key(g:plugs, name)
       call add(g:plugs_order, name)
@@ -562,7 +531,7 @@ function! s:parse_options(arg)
     endif
     call extend(opts, a:arg)
     if has_key(opts, 'dir')
-      let opts.dir = s:dirpath(s:plug_expand(opts.dir))
+      let opts.dir = s:dirpath(expand(opts.dir, 1))
     endif
   else
     throw 'Invalid argument type (expected: string or dictionary)'
@@ -573,7 +542,7 @@ endfunction
 function! s:infer_properties(name, repo)
   let repo = a:repo
   if s:is_local_plug(repo)
-    return { 'dir': s:dirpath(s:plug_expand(repo)) }
+    return { 'dir': s:dirpath(expand(repo, 1)) }
   else
     if repo =~ ':'
       let uri = repo
@@ -588,13 +557,7 @@ function! s:infer_properties(name, repo)
   endif
 endfunction
 
-function! s:install(force, names)
-  call s:update_impl(0, a:force, a:names)
-endfunction
-
-function! s:update(force, names)
-  call s:update_impl(1, a:force, a:names)
-endfunction
+" install and update functions inlined
 
 function! plug#helptags()
   if !exists('g:plugs')
@@ -603,7 +566,7 @@ function! plug#helptags()
   for spec in values(g:plugs)
     let docd = join([s:rtp(spec), 'doc'], '/')
     if isdirectory(docd)
-      silent! execute 'helptags' s:esc(docd)
+      silent! execute 'helptags' escape(docd, ' ')
     endif
   endfor
   return 1
@@ -613,17 +576,7 @@ endfunction
 
 " Function removed - only used for buffer UI
 
-function! s:lines(msg)
-  return split(a:msg, "[\r\n]")
-endfunction
-
-function! s:lastline(msg)
-  return get(s:lines(a:msg), -1, '')
-endfunction
-
-function! s:new_window()
-  execute get(g:, 'plug_window', '-tabnew')
-endfunction
+" lines, lastline, and new_window functions inlined
 
 " Function removed - only used for buffer UI
 
@@ -634,7 +587,7 @@ function! s:finish_bindings()
 endfunction
 
 function! s:prepare(...)
-  if empty(s:plug_getcwd())
+  if empty(getcwd())
     throw 'Invalid current working directory. Cannot proceed.'
   endif
 
@@ -708,7 +661,7 @@ function! s:do(pull, force, todo)
     let updated = installed ? 0 :
       \ (a:pull && index(s:update.errors, name) < 0 && s:is_updated(spec.dir))
     if a:force || installed || updated
-      execute 'cd' s:esc(spec.dir)
+      execute 'cd' escape(spec.dir, ' ')
       call append(3, '- Post-update hook for '. name .' ... ')
       let error = ''
       let type = type(spec.do)
@@ -792,9 +745,7 @@ function! s:retry()
         \ extend(copy(s:update.errors), [s:update.threads]))
 endfunction
 
-function! plug#retry()
-  call s:retry()
-endfunction
+" plug#retry function inlined
 
 function! s:is_managed(name)
   return has_key(g:plugs[a:name], 'uri')
@@ -944,7 +895,7 @@ function! s:update_finish()
 
       " Update status in dialog
       let status = error ? 'error' : 'done'
-      let message = error ? out : (!empty(out) ? s:lastline(out) : 'Done')
+      let message = error ? out : (!empty(out) ? get(split(out, "[\r\n]"), -1, '') : 'Done')
       call plug#dialog#update_plugin(name, status, message)
 
       if error
@@ -1134,7 +1085,7 @@ function! s:log(bullet, name, lines)
              \ a:bullet == '*' ? 'update' : 'done'
 
   " Get the message
-  let message = type(a:lines) == s:TYPE.string ? a:lines : s:lastline(a:lines)
+  let message = type(a:lines) == s:TYPE.string ? a:lines : get(split(a:lines, "[\r\n]"), -1, '')
 
   " Update the dialog
   if exists('*popup_create') && plug#dialog#is_open()
@@ -1435,7 +1386,7 @@ endfunction
 function! s:upgrade()
   echo 'Downloading the latest version of vim-plug'
   redraw
-  let tmp = s:plug_tempname()
+  let tmp = tempname()
   let new = tmp . '/plug.vim'
 
   try
@@ -1535,9 +1486,7 @@ function! s:status_update() range
   endif
 endfunction
 
-function! plug#status_update() range
-  call s:status_update()
-endfunction
+" plug#status_update function inlined
 
 function! s:is_preview_window_open()
   silent! wincmd P
@@ -1604,12 +1553,9 @@ function! s:preview_commit()
   wincmd p
 endfunction
 
-function! s:section(flags)
-  call search('\(^[x-] \)\@<=[^:]\+:', a:flags)
-endfunction
-
+" section function inlined
 function! plug#section(flags)
-  call s:section(a:flags)
+  call search('\(^[x-] \)\@<=[^:]\+:', a:flags)
 endfunction
 
 " Git functions moved to autoload/plug/git.vim
@@ -1726,12 +1672,9 @@ function! s:snapshot(force, ...) abort
   endif
 endfunction
 
-function! s:split_rtp()
-  return split(&rtp, '\\\@<!,')
-endfunction
-
-let s:first_rtp = s:escrtp(get(s:split_rtp(), 0, ''))
-let s:last_rtp  = s:escrtp(get(s:split_rtp(), -1, ''))
+" split_rtp function inlined
+let s:first_rtp = escape(get(split(&rtp, '\\\@<!,'), 0, ''), ' ,')
+let s:last_rtp  = escape(get(split(&rtp, '\\\@<!,'), -1, ''), ' ,')
 
 if exists('g:plugs')
   let g:plugs_order = get(g:, 'plugs_order', keys(g:plugs))
