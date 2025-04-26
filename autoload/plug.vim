@@ -894,13 +894,13 @@ function! s:dialog_finished(result)
     let message .= ' Errors: ' . len(s:update.errors)
   endif
 
-  " Show a notification popup for a more modern UI experience
-  let notify_type = !empty(s:update.errors) ? 'error' : 'normal'
-  call plug#dialog#notify(message, notify_type)
-
-  " Schedule a command to be executed after this function returns
-  " This prevents the message from leaking into the current buffer
-  call timer_start(10, {-> execute('echomsg "[vim-plug] ' . escape(message, '"') . '"', '')})
+  " Add a summary message to the dialog
+  if plug#dialog#is_open()
+    call plug#dialog#add_summary(message, !empty(s:update.errors) ? 'error' : 'success')
+  else
+    " If dialog is already closed, show a message in the command line
+    call timer_start(10, {-> execute('echomsg "[vim-plug] ' . escape(message, '"') . '"', '')})
+  endif
 
   if exists('#PlugPost')
     doautocmd PlugPost
@@ -961,6 +961,9 @@ function! s:update_finish()
 
     " Mark as finished
     let s:update.fin = 1
+
+    " Call the dialog finished callback
+    call s:dialog_finished(1)
   endif
 endfunction
 

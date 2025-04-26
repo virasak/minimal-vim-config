@@ -197,6 +197,34 @@ function! plug#dialog#add_message(message)
   call popup_settext(s:dialog.id, s:dialog.content)
 endfunction
 
+" Add a summary message to the dialog
+function! plug#dialog#add_summary(message, type)
+  if s:dialog.id == -1
+    return
+  endif
+
+  " Add a separator line
+  call add(s:dialog.content, '')
+  call add(s:dialog.content, repeat('─', s:dialog.width - 4))
+
+  " Add the summary message with appropriate styling
+  let prefix = a:type == 'error' ? '✗ ' : '✓ '
+
+  " Use different colors for success/error
+  if a:type == 'error'
+    call add(s:dialog.content, prefix . a:message . ' (Error)')
+  else
+    call add(s:dialog.content, prefix . a:message . ' (Success)')
+  endif
+
+  " Add a note that the dialog can be closed
+  call add(s:dialog.content, '')
+  call add(s:dialog.content, 'Press q or Esc to close this dialog')
+
+  " Update the popup
+  call popup_settext(s:dialog.id, s:dialog.content)
+endfunction
+
 " Get dialog status
 function! plug#dialog#is_open()
   return s:dialog.id != -1
@@ -207,29 +235,4 @@ function! plug#dialog#get_errors()
   return s:dialog.errors
 endfunction
 
-" Show a notification popup
-function! plug#dialog#notify(message, type)
-  if !exists('*popup_notification')
-    return
-  endif
-
-  let options = {
-    \ 'pos': 'topright',
-    \ 'time': 3000,
-    \ 'tabpage': 0,
-    \ 'padding': [0, 1, 0, 1],
-    \ 'border': [1, 1, 1, 1],
-    \ 'borderchars': ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
-    \ 'borderhighlight': ['Title']
-  \ }
-
-  if a:type == 'error'
-    let options.highlight = 'ErrorMsg'
-  elseif a:type == 'warning'
-    let options.highlight = 'WarningMsg'
-  else
-    let options.highlight = 'Normal'
-  endif
-
-  call popup_notification([' vim-plug ', '', ' ' . a:message . ' '], options)
-endfunction
+" Function removed - summary is now shown in the main dialog
