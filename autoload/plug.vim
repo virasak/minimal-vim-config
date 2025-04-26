@@ -763,32 +763,9 @@ function! s:prepare(...)
   endfor
 
   call s:job_abort(0)
-  if s:switch_in()
-    if b:plug_preview == 1
-      pc
-    endif
-    enew
-  else
-    call s:new_window()
-  endif
 
-  nnoremap <silent> <buffer> q :call <SID>close_pane()<cr>
-  if a:0 == 0
-    call s:finish_bindings()
-  endif
-  let b:plug_preview = -1
-  let s:plug_tab = tabpagenr()
-  let s:plug_buf = winbufnr(0)
-  call s:assign_name()
-
-  for k in ['<cr>', 'L', 'o', 'X', 'd', 'dd']
-    execute 'silent! unmap <buffer>' k
-  endfor
-  setlocal buftype=nofile bufhidden=wipe nobuflisted nolist noswapfile nowrap cursorline modifiable nospell
-  if exists('+colorcolumn')
-    setlocal colorcolumn=
-  endif
-  setf vim-plug
+  " Use dialog UI
+  return 1
 endfunction
 
 function! s:close_pane()
@@ -1010,10 +987,12 @@ function! s:update_impl(pull, force, args) abort
     \ 'fin':     0
   \ }
 
-  call s:prepare(1)
-  call append(0, ['', ''])
-  normal! 2G
-  silent! redraw
+  " Prepare for update - this now returns 1 for dialog UI
+  if s:prepare(1)
+    " Create dialog UI
+    let title = a:pull ? 'Updating Plugins' : 'Installing Plugins'
+    call plug#dialog#new(title, a:pull ? 'update' : 'install', todo, function('s:dialog_finished'))
+  endif
 
   " Set remote name, overriding a possible user git config's clone.defaultRemoteName
   let s:clone_opt = ['--origin', 'origin']
@@ -1028,13 +1007,43 @@ function! s:update_impl(pull, force, args) abort
 
   let s:submodule_opt = ' --jobs='.threads
 
+  " Start the update process
   call s:update_vim()
-  while sync
-    sleep 100m
-    if s:update.fin
-      break
-    endif
-  endwhile
+
+  " For synchronous updates with buffer UI, wait for completion
+  if sync && !exists('*popup_create')
+    while !s:update.fin
+      sleep 100m
+    endwhile
+  endif
+endfunction
+
+" Callback when dialog is finished
+function! s:dialog_finished(result)
+  " Handle any cleanup needed after dialog is closed
+  if exists('s:git_terminal_prompt')
+    let $GIT_TERMINAL_PROMPT = s:git_terminal_prompt
+  endif
+
+  " Show summary if needed
+  let elapsed = split(reltimestr(reltime(s:update.start)))[0]
+  let message = 'Finished. Elapsed time: ' . elapsed . ' sec.'
+
+  if !empty(s:update.errors)
+    let message .= ' Errors: ' . len(s:update.errors)
+  endif
+
+  " Show a notification popup for a more modern UI experience
+  let notify_type = !empty(s:update.errors) ? 'error' : 'normal'
+  call plug#dialog#notify(message, notify_type)
+
+  " Schedule a command to be executed after this function returns
+  " This prevents the message from leaking into the current buffer
+  call timer_start(10, {-> execute('echomsg "[vim-plug] ' . escape(message, '"') . '"', '')})
+
+  if exists('#PlugPost')
+    doautocmd PlugPost
+  endif
 endfunction
 
 function! s:log4(name, msg)
@@ -1046,6 +1055,59 @@ function! s:update_finish()
   if exists('s:git_terminal_prompt')
     let $GIT_TERMINAL_PROMPT = s:git_terminal_prompt
   endif
+
+  " Check if we're using dialog UI
+  if exists('*popup_create') && plug#dialog#is_open()
+    " Process any remaining tasks in dialog UI
+    for [name, spec] in items(filter(copy(s:update.all), 'index(s:update.errors, v:key) < 0 && (s:update.force || s:update.pull || has_key(s:update.new, v:key))'))
+      let out = ''
+      let error = 0
+      if has_key(spec, 'commit')
+        call plug#dialog#update_plugin(name, 'update', 'Checking out '.spec.commit)
+        let [out, error] = s:checkout(spec)
+      elseif has_key(spec, 'tag')
+        let tag = spec.tag
+        if tag =~ '\*'
+          let tags = s:lines(s:system('git tag --list '.plug#shellescape(tag).' --sort -version:refname 2>&1', spec.dir))
+          if !v:shell_error && !empty(tags)
+            let tag = tags[0]
+            call plug#dialog#update_plugin(name, 'update', printf('Latest tag for %s -> %s', spec.tag, tag))
+          endif
+        endif
+        call plug#dialog#update_plugin(name, 'update', 'Checking out '.tag)
+        let out = s:system('git checkout -q '.plug#shellescape(tag).' -- 2>&1', spec.dir)
+        let error = v:shell_error
+      endif
+      if !error && filereadable(spec.dir.'/.gitmodules') &&
+            \ (s:update.force || has_key(s:update.new, name) || s:is_updated(spec.dir))
+        call plug#dialog#update_plugin(name, 'update', 'Updating submodules. This may take a while.')
+        let out .= s:bang('git submodule update --init --recursive'.s:submodule_opt.' 2>&1', spec.dir)
+        let error = v:shell_error
+      endif
+
+      " Update status in dialog
+      let status = error ? 'error' : 'done'
+      let message = error ? out : (!empty(out) ? s:lastline(out) : 'Done')
+      call plug#dialog#update_plugin(name, status, message)
+
+      if error
+        call add(s:update.errors, name)
+      endif
+    endfor
+
+    try
+      call s:do(s:update.pull, s:update.force, filter(copy(s:update.all), 'index(s:update.errors, v:key) < 0 && has_key(v:val, "do")'))
+    catch
+      call timer_start(10, {-> execute('echomsg "[vim-plug] '.escape(v:exception, '"').'"', '')})
+      return
+    endtry
+
+    " Mark as finished
+    let s:update.fin = 1
+    return
+  endif
+
+  " Fall back to buffer UI
   if s:switch_in()
     call append(3, '- Updating ...') | 4
     for [name, spec] in items(filter(copy(s:update.all), 'index(s:update.errors, v:key) < 0 && (s:update.force || s:update.pull || has_key(s:update.new, v:key))'))
@@ -1109,6 +1171,10 @@ function! s:mark_aborted(name, message)
 endfunction
 
 function! s:job_abort(cancel)
+  if !exists('s:jobs')
+    let s:jobs = {}
+  endif
+
   for [name, j] in items(s:jobs)
     silent! call job_stop(j.jobid)
     if j.new
@@ -1169,6 +1235,16 @@ function! s:job_exit_cb(self, data) abort
   let a:self.error = a:data != 0
   call s:reap(a:self.name)
   call s:tick()
+endfunction
+
+function! s:plug_window_exists()
+  " Check if dialog UI is being used
+  if exists('*popup_create') && plug#dialog#is_open()
+    return 1
+  endif
+
+  " Check if buffer UI is being used
+  return s:plug_buf != -1 && bufexists(s:plug_buf)
 endfunction
 
 function! s:job_cb(fn, job, ch, data)
@@ -1233,6 +1309,14 @@ function! s:reap(name)
 endfunction
 
 function! s:bar()
+  " Check if we're using dialog UI
+  if exists('*popup_create') && plug#dialog#is_open()
+    " Update progress in dialog
+    call plug#dialog#update_progress(len(s:update.bar))
+    return
+  endif
+
+  " Fall back to buffer UI
   if s:switch_in()
     let total = len(s:update.all)
     call setline(1, (s:update.pull ? 'Updating' : 'Installing').
@@ -1258,6 +1342,22 @@ function! s:logpos(name)
 endfunction
 
 function! s:log(bullet, name, lines)
+  " Check if we're using dialog UI
+  if exists('*popup_create') && plug#dialog#is_open()
+    " Determine status based on bullet
+    let status = a:bullet == 'x' ? 'error' :
+               \ a:bullet == '+' ? 'install' :
+               \ a:bullet == '*' ? 'update' : 'done'
+
+    " Get the message
+    let message = type(a:lines) == s:TYPE.string ? a:lines : s:lastline(a:lines)
+
+    " Update the dialog
+    call plug#dialog#update_plugin(a:name, status, message)
+    return
+  endif
+
+  " Fall back to buffer UI
   if s:switch_in()
     let [b, e] = s:logpos(a:name)
     if b > 0
