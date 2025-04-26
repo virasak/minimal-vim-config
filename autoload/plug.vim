@@ -294,6 +294,10 @@ function! s:progress_opt(base)
   return a:base ? '--progress' : ''
 endfunction
 
+function! s:progress_bar(line, bar, total)
+  call setline(a:line, '[' . a:bar . repeat(' ', a:total - len(a:bar)) . ']')
+endfunction
+
 function! s:rtp(spec)
   return substitute(a:spec.dir . get(a:spec, 'rtp', ''), '[\/]\+$', '', '')
 endfunction
@@ -1274,6 +1278,13 @@ function! s:rm_rf(dir)
 endfunction
 
 function! s:clean(force)
+  " Use dialog UI if available
+  if exists('*popup_create')
+    call s:clean_dialog(a:force)
+    return
+  endif
+
+  " Fallback to buffer UI for older Vim versions
   call s:prepare()
   call append(0, 'Searching for invalid plugins in '.g:plug_home)
   call append(1, '')
@@ -1301,7 +1312,7 @@ function! s:clean(force)
 
   let allowed = {}
   for dir in dirs
-    let allowed[s:dirpath(s:plug_fnamemodify(dir, ':h:h'))] = 1
+    let allowed[s:dirpath(fnamemodify(dir, ':h:h'))] = 1
     let allowed[dir] = 1
     for child in s:glob_dir(dir)
       let allowed[child] = 1
@@ -1342,6 +1353,132 @@ function! s:clean(force)
   endif
   4
   setlocal nomodifiable
+endfunction
+
+function! s:clean_dialog(force)
+  " Initialize dialog state
+  let s:clean_count = 0
+  let s:clean_errors = 0
+  let s:clean_todo = {}
+
+  " List of valid directories
+  let dirs = []
+  let errs = {}
+
+  " Create dialog
+  call plug#dialog#new('Cleaning Plugins', 'clean', {}, function('s:clean_dialog_finished'))
+  call plug#dialog#add_message('Searching for invalid plugins in '.g:plug_home)
+  call plug#dialog#add_message('')
+
+  " Find valid directories
+  let [cnt, total] = [0, len(g:plugs)]
+  for [name, spec] in items(g:plugs)
+    if !s:is_managed(name) || get(spec, 'frozen', 0)
+      call add(dirs, spec.dir)
+    else
+      let [err, clean] = plug#git#validate(spec, 1)
+      if clean
+        let errs[spec.dir] = s:lines(err)[0]
+      else
+        call add(dirs, spec.dir)
+      endif
+    endif
+    let cnt += 1
+    call plug#dialog#update_progress(cnt)
+  endfor
+
+  " Find directories to clean
+  let allowed = {}
+  for dir in dirs
+    let allowed[s:dirpath(fnamemodify(dir, ':h:h'))] = 1
+    let allowed[dir] = 1
+    for child in s:glob_dir(dir)
+      let allowed[child] = 1
+    endfor
+  endfor
+
+  let todo = []
+  let found = sort(s:glob_dir(g:plug_home))
+  while !empty(found)
+    let f = remove(found, 0)
+    if !has_key(allowed, f) && isdirectory(f)
+      call add(todo, f)
+      let dir_name = fnamemodify(f, ':t')
+      let s:clean_todo[dir_name] = f
+      call plug#dialog#add_message('- '.dir_name.': '.f)
+      if has_key(errs, f)
+        call plug#dialog#add_message('  '.errs[f])
+      endif
+      let found = filter(found, 'stridx(v:val, f) != 0')
+    end
+  endwhile
+
+  " Show results
+  if empty(todo)
+    call plug#dialog#add_message('')
+    call plug#dialog#add_message('Already clean.')
+    call plug#dialog#add_summary('No directories to clean', 'success')
+  else
+    call plug#dialog#add_message('')
+    call plug#dialog#add_message('Directories to delete:')
+
+    " Add confirmation buttons
+    if a:force
+      call timer_start(100, {-> s:clean_dialog_delete_all()})
+    else
+      call plug#dialog#add_message('')
+      call plug#dialog#add_message('Press D to delete all directories')
+      call plug#dialog#add_message('Press q or Esc to cancel')
+
+      " Add key handler for 'D' to delete all
+      let s:old_filter = popup_getoptions(plug#dialog#is_open()).filter
+      call popup_setoptions(plug#dialog#is_open(), {
+        \ 'filter': function('s:clean_dialog_filter')
+      \ })
+    endif
+  endif
+endfunction
+
+function! s:clean_dialog_filter(id, key)
+  if a:key ==? 'd'
+    call s:clean_dialog_delete_all()
+    return 1
+  endif
+
+  " Call the original filter
+  return s:old_filter(a:id, a:key)
+endfunction
+
+function! s:clean_dialog_delete_all()
+  call plug#dialog#add_message('')
+  call plug#dialog#add_message('Deleting directories...')
+
+  for [name, path] in items(s:clean_todo)
+    call plug#dialog#update_plugin(name, 'update', 'Deleting...')
+    let err = s:rm_rf(path)
+    if empty(err)
+      let s:clean_count += 1
+      call plug#dialog#update_plugin(name, 'done', 'Deleted')
+    else
+      let s:clean_errors += 1
+      call plug#dialog#update_plugin(name, 'error', err)
+    endif
+  endfor
+
+  " Show summary
+  let msg = printf('Removed %d directories.', s:clean_count)
+  if s:clean_errors > 0
+    let msg .= printf(' Failed to remove %d directories.', s:clean_errors)
+    call plug#dialog#add_summary(msg, 'error')
+  else
+    call plug#dialog#add_summary(msg, 'success')
+  endif
+endfunction
+
+function! s:clean_dialog_finished(result)
+  " Cleanup
+  unlet! s:clean_todo
+  unlet! s:old_filter
 endfunction
 
 function! s:delete_op(type, ...)
@@ -1661,13 +1798,13 @@ function! s:snapshot(force, ...) abort
   endfor
 
   if a:0 > 0
-    let fn = s:plug_expand(a:1)
+    let fn = expand(a:1, 1)
     if filereadable(fn) && !(a:force || s:ask(a:1.' already exists. Overwrite?'))
       return
     endif
     call writefile(getline(1, '$'), fn)
     echo 'Saved as '.a:1
-    silent execute 'e' s:esc(fn)
+    silent execute 'e' escape(fn, ' ')
     setf vim
   endif
 endfunction
