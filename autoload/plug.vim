@@ -790,60 +790,7 @@ function! plug#helptags()
   return 1
 endfunction
 
-function! s:syntax()
-  syntax clear
-  syntax region plug1 start=/\%1l/ end=/\%2l/ contains=plugNumber
-  syntax region plug2 start=/\%2l/ end=/\%3l/ contains=plugBracket,plugX,plugAbort
-  syn match plugNumber /[0-9]\+[0-9.]*/ contained
-  syn match plugBracket /[[\]]/ contained
-  syn match plugX /x/ contained
-  syn match plugAbort /\~/ contained
-  syn match plugDash /^-\{1}\ /
-  syn match plugPlus /^+/
-  syn match plugStar /^*/
-  syn match plugMessage /\(^- \)\@<=.*/
-  syn match plugName /\(^- \)\@<=[^ ]*:/
-  syn match plugSha /\%(: \)\@<=[0-9a-f]\{4,}$/
-  syn match plugTag /(tag: [^)]\+)/
-  syn match plugInstall /\(^+ \)\@<=[^:]*/
-  syn match plugUpdate /\(^* \)\@<=[^:]*/
-  syn match plugCommit /^  \X*[0-9a-f]\{7,9} .*/ contains=plugRelDate,plugEdge,plugTag
-  syn match plugEdge /^  \X\+$/
-  syn match plugEdge /^  \X*/ contained nextgroup=plugSha
-  syn match plugSha /[0-9a-f]\{7,9}/ contained
-  syn match plugRelDate /([^)]*)$/ contained
-  syn match plugNotLoaded /(not loaded)$/
-  syn match plugError /^x.*/
-  syn region plugDeleted start=/^\~ .*/ end=/^\ze\S/
-  syn match plugH2 /^.*:\n-\+$/
-  syn match plugH2 /^-\{2,}/
-  syn keyword Function PlugInstall PlugStatus PlugUpdate PlugClean
-  hi def link plug1       Title
-  hi def link plug2       Repeat
-  hi def link plugH2      Type
-  hi def link plugX       Exception
-  hi def link plugAbort   Ignore
-  hi def link plugBracket Structure
-  hi def link plugNumber  Number
-
-  hi def link plugDash    Special
-  hi def link plugPlus    Constant
-  hi def link plugStar    Boolean
-
-  hi def link plugMessage Function
-  hi def link plugName    Label
-  hi def link plugInstall Function
-  hi def link plugUpdate  Type
-
-  hi def link plugError   Error
-  hi def link plugDeleted Ignore
-  hi def link plugRelDate Comment
-  hi def link plugEdge    PreProc
-  hi def link plugSha     Identifier
-  hi def link plugTag     Constant
-
-  hi def link plugNotLoaded Comment
-endfunction
+" Syntax function is now in syntax/vim-plug.vim
 
 function! s:lpad(str, len)
   return a:str . repeat(' ', a:len - len(a:str))
@@ -900,13 +847,7 @@ function! s:switch_out(...)
 endfunction
 
 function! s:finish_bindings()
-  nnoremap <silent> <buffer> R  :call <SID>retry()<cr>
-  nnoremap <silent> <buffer> D  :PlugDiff<cr>
-  nnoremap <silent> <buffer> S  :PlugStatus<cr>
-  nnoremap <silent> <buffer> U  :call <SID>status_update()<cr>
-  xnoremap <silent> <buffer> U  :call <SID>status_update()<cr>
-  nnoremap <silent> <buffer> ]] :silent! call <SID>section('')<cr>
-  nnoremap <silent> <buffer> [[ :silent! call <SID>section('b')<cr>
+  " Key mappings are now in ftplugin/vim-plug.vim
 endfunction
 
 function! s:prepare(...)
@@ -947,9 +888,6 @@ function! s:prepare(...)
     setlocal colorcolumn=
   endif
   setf vim-plug
-  if exists('g:syntax_on')
-    call s:syntax()
-  endif
 endfunction
 
 function! s:close_pane()
@@ -1133,6 +1071,10 @@ function! s:retry()
   echo
   call s:update_impl(s:update.pull, s:update.force,
         \ extend(copy(s:update.errors), [s:update.threads]))
+endfunction
+
+function! plug#retry()
+  call s:retry()
 endfunction
 
 function! s:is_managed(name)
@@ -2657,6 +2599,10 @@ function! s:status_update() range
   endif
 endfunction
 
+function! plug#status_update() range
+  call s:status_update()
+endfunction
+
 function! s:is_preview_window_open()
   silent! wincmd P
   if &previewwindow
@@ -2731,6 +2677,10 @@ endfunction
 
 function! s:section(flags)
   call search('\(^[x-] \)\@<=[^:]\+:', a:flags)
+endfunction
+
+function! plug#section(flags)
+  call s:section(a:flags)
 endfunction
 
 function! s:format_git_log(line)
