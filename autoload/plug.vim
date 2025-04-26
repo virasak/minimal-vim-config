@@ -82,86 +82,6 @@ function! s:isabsolute(dir) abort
   return a:dir =~# '^/'
 endfunction
 
-function! s:git_dir(dir) abort
-  let gitdir = s:trim(a:dir) . '/.git'
-  if isdirectory(gitdir)
-    return gitdir
-  endif
-  if !filereadable(gitdir)
-    return ''
-  endif
-  let gitdir = matchstr(get(readfile(gitdir), 0, ''), '^gitdir: \zs.*')
-  if len(gitdir) && !s:isabsolute(gitdir)
-    let gitdir = a:dir . '/' . gitdir
-  endif
-  return isdirectory(gitdir) ? gitdir : ''
-endfunction
-
-function! s:git_origin_url(dir) abort
-  let gitdir = s:git_dir(a:dir)
-  let config = gitdir . '/config'
-  if empty(gitdir) || !filereadable(config)
-    return ''
-  endif
-  return matchstr(join(readfile(config)), '\[remote "origin"\].\{-}url\s*=\s*\zs\S*\ze')
-endfunction
-
-function! s:git_revision(dir) abort
-  let gitdir = s:git_dir(a:dir)
-  let head = gitdir . '/HEAD'
-  if empty(gitdir) || !filereadable(head)
-    return ''
-  endif
-
-  let line = get(readfile(head), 0, '')
-  let ref = matchstr(line, '^ref: \zs.*')
-  if empty(ref)
-    return line
-  endif
-
-  if filereadable(gitdir . '/' . ref)
-    return get(readfile(gitdir . '/' . ref), 0, '')
-  endif
-
-  if filereadable(gitdir . '/packed-refs')
-    for line in readfile(gitdir . '/packed-refs')
-      if line =~# ' ' . ref
-        return matchstr(line, '^[0-9a-f]*')
-      endif
-    endfor
-  endif
-
-  return ''
-endfunction
-
-function! s:git_local_branch(dir) abort
-  let gitdir = s:git_dir(a:dir)
-  let head = gitdir . '/HEAD'
-  if empty(gitdir) || !filereadable(head)
-    return ''
-  endif
-  let branch = matchstr(get(readfile(head), 0, ''), '^ref: refs/heads/\zs.*')
-  return len(branch) ? branch : 'HEAD'
-endfunction
-
-function! s:git_origin_branch(spec)
-  if len(a:spec.branch)
-    return a:spec.branch
-  endif
-
-  " The file may not be present if this is a local repository
-  let gitdir = s:git_dir(a:spec.dir)
-  let origin_head = gitdir.'/refs/remotes/origin/HEAD'
-  if len(gitdir) && filereadable(origin_head)
-    return matchstr(get(readfile(origin_head), 0, ''),
-                  \ '^ref: refs/remotes/origin/\zs.*')
-  endif
-
-  " The command may not return the name of a branch in detached HEAD state
-  let result = s:lines(s:system('git symbolic-ref --short HEAD', a:spec.dir))
-  return v:shell_error ? '' : result[-1]
-endfunction
-
 function! s:plug_call(fn, ...)
   return call(a:fn, a:000)
 endfunction
@@ -813,9 +733,7 @@ endfunction
 
 " Function removed - only used for buffer UI
 
-function! s:is_updated(dir)
-  return !empty(s:system_chomp(['git', 'log', '--pretty=format:%h', 'HEAD...HEAD@{1}'], a:dir))
-endfunction
+" Git functions moved to autoload/plug/git.vim
 
 function! s:do(pull, force, todo)
   for [name, spec] in items(a:todo)
@@ -881,26 +799,7 @@ function! s:do(pull, force, todo)
   endfor
 endfunction
 
-function! s:hash_match(a, b)
-  return stridx(a:a, a:b) == 0 || stridx(a:b, a:a) == 0
-endfunction
-
-function! s:disable_credential_helper()
-  return get(g:, 'plug_disable_credential_helper', 1)
-endfunction
-
-function! s:checkout(spec)
-  let sha = a:spec.commit
-  let output = s:git_revision(a:spec.dir)
-  let error = 0
-  if !empty(output) && !s:hash_match(sha, s:lines(output)[0])
-    let credential_helper = s:disable_credential_helper() ? '-c credential.helper= ' : ''
-    let output = s:system(
-          \ 'git '.credential_helper.'fetch --depth 999999 && git checkout '.plug#shellescape(sha).' --', a:spec.dir)
-    let error = v:shell_error
-  endif
-  return [output, error]
-endfunction
+" Git functions moved to autoload/plug/git.vim
 
 function! s:finish(pull)
   let new_frozen = len(filter(keys(s:update.new), 'g:plugs[v:val].frozen'))
@@ -1383,15 +1282,7 @@ function! s:update_vim()
   call s:tick()
 endfunction
 
-function! s:checkout_command(spec)
-  let a:spec.branch = s:git_origin_branch(a:spec)
-  return ['git', 'checkout', '-q', a:spec.branch, '--']
-endfunction
-
-function! s:merge_command(spec)
-  let a:spec.branch = s:git_origin_branch(a:spec)
-  return ['git', 'merge', '--ff-only', 'origin/'.a:spec.branch]
-endfunction
+" Git functions moved to autoload/plug/git.vim
 
 function! s:tick()
   let pull = s:update.pull
@@ -1425,10 +1316,10 @@ while 1 " Without TCO, Vim stack is bound to explode
   if len(queue)
     call s:spawn(name, spec, queue, { 'dir': spec.dir })
   elseif !new
-    let [error, _] = s:git_validate(spec, 0)
+    let [error, _] = plug#git#validate(spec, 0)
     if empty(error)
       if pull
-        let cmd = s:disable_credential_helper() ? ['git', '-c', 'credential.helper=', 'fetch'] : ['git', 'fetch']
+        let cmd = plug#git#disable_credential_helper() ? ['git', '-c', 'credential.helper=', 'fetch'] : ['git', 'fetch']
         if has_tag && !empty(globpath(spec.dir, '.git/shallow'))
           call extend(cmd, ['--depth', '99999999'])
         endif
@@ -1437,7 +1328,7 @@ while 1 " Without TCO, Vim stack is bound to explode
         endif
         let queue = [cmd, split('git remote set-head origin -a')]
         if !has_tag && !has_key(spec, 'commit')
-          call extend(queue, [function('s:checkout_command'), function('s:merge_command')])
+          call extend(queue, [function('plug#git#checkout_command'), function('plug#git#merge_command')])
         endif
         call s:spawn(name, spec, queue, { 'dir': spec.dir })
       else
@@ -1454,7 +1345,7 @@ while 1 " Without TCO, Vim stack is bound to explode
     if !empty(prog)
       call add(cmd, prog)
     endif
-    call s:spawn(name, spec, [extend(cmd, [spec.uri, s:trim(spec.dir)]), function('s:checkout_command'), function('s:merge_command')], { 'new': 1 })
+    call s:spawn(name, spec, [extend(cmd, [spec.uri, s:trim(spec.dir)]), function('plug#git#checkout_command'), function('plug#git#merge_command')], { 'new': 1 })
   endif
 
   if !s:jobs[name].running
@@ -1556,69 +1447,7 @@ function! s:system_chomp(...)
   return v:shell_error ? '' : substitute(ret, '\n$', '', '')
 endfunction
 
-function! s:git_validate(spec, check_branch)
-  let err = ''
-  if isdirectory(a:spec.dir)
-    let result = [s:git_local_branch(a:spec.dir), s:git_origin_url(a:spec.dir)]
-    let remote = result[-1]
-    if empty(remote)
-      let err = join([remote, 'PlugClean required.'], "\n")
-    elseif !s:compare_git_uri(remote, a:spec.uri)
-      let err = join(['Invalid URI: '.remote,
-                    \ 'Expected:    '.a:spec.uri,
-                    \ 'PlugClean required.'], "\n")
-    elseif a:check_branch && has_key(a:spec, 'commit')
-      let sha = s:git_revision(a:spec.dir)
-      if empty(sha)
-        let err = join(add(result, 'PlugClean required.'), "\n")
-      elseif !s:hash_match(sha, a:spec.commit)
-        let err = join([printf('Invalid HEAD (expected: %s, actual: %s)',
-                              \ a:spec.commit[:6], sha[:6]),
-                      \ 'PlugUpdate required.'], "\n")
-      endif
-    elseif a:check_branch
-      let current_branch = result[0]
-      " Check tag
-      let origin_branch = s:git_origin_branch(a:spec)
-      if has_key(a:spec, 'tag')
-        let tag = s:system_chomp('git describe --exact-match --tags HEAD 2>&1', a:spec.dir)
-        if a:spec.tag !=# tag && a:spec.tag !~ '\*'
-          let err = printf('Invalid tag: %s (expected: %s). Try PlugUpdate.',
-                \ (empty(tag) ? 'N/A' : tag), a:spec.tag)
-        endif
-      " Check branch
-      elseif origin_branch !=# current_branch
-        let err = printf('Invalid branch: %s (expected: %s). Try PlugUpdate.',
-              \ current_branch, origin_branch)
-      endif
-      if empty(err)
-        let ahead_behind = split(s:lastline(s:system([
-          \ 'git', 'rev-list', '--count', '--left-right',
-          \ printf('HEAD...origin/%s', origin_branch)
-          \ ], a:spec.dir)), '\t')
-        if v:shell_error || len(ahead_behind) != 2
-          let err = "Failed to compare with the origin. The default branch might have changed.\nPlugClean required."
-        else
-          let [ahead, behind] = ahead_behind
-          if ahead && behind
-            " Only mention PlugClean if diverged, otherwise it's likely to be
-            " pushable (and probably not that messed up).
-            let err = printf(
-                  \ "Diverged from origin/%s (%d commit(s) ahead and %d commit(s) behind!\n"
-                  \ .'Backup local changes and run PlugClean and PlugUpdate to reinstall it.', origin_branch, ahead, behind)
-          elseif ahead
-            let err = printf("Ahead of origin/%s by %d commit(s).\n"
-                  \ .'Cannot update until local changes are pushed.',
-                  \ origin_branch, ahead)
-          endif
-        endif
-      endif
-    endif
-  else
-    let err = 'Not found'
-  endif
-  return [err, err =~# 'PlugClean']
-endfunction
+" Git functions moved to autoload/plug/git.vim
 
 function! s:rm_rf(dir)
   if isdirectory(a:dir)
@@ -1639,7 +1468,7 @@ function! s:clean(force)
     if !s:is_managed(name) || get(spec, 'frozen', 0)
       call add(dirs, spec.dir)
     else
-      let [err, clean] = s:git_validate(spec, 1)
+      let [err, clean] = plug#git#validate(spec, 1)
       if clean
         let errs[spec.dir] = s:lines(err)[0]
       else
@@ -1781,7 +1610,7 @@ function! s:status()
     let is_dir = isdirectory(spec.dir)
     if has_key(spec, 'uri')
       if is_dir
-        let [err, _] = s:git_validate(spec, 1)
+        let [err, _] = plug#git#validate(spec, 1)
         let [valid, msg] = [empty(err), empty(err) ? 'OK' : err]
       else
         let [valid, msg] = [0, 'Not found. Try PlugInstall.']
@@ -1916,17 +1745,7 @@ function! plug#section(flags)
   call s:section(a:flags)
 endfunction
 
-function! s:format_git_log(line)
-  let indent = '  '
-  let tokens = split(a:line, nr2char(1))
-  if len(tokens) != 5
-    return indent.substitute(a:line, '\s*$', '', '')
-  endif
-  let [graph, sha, refs, subject, date] = tokens
-  let tag = matchstr(refs, 'tag: [^,)]\+')
-  let tag = empty(tag) ? ' ' : ' ('.tag.') '
-  return printf('%s%s%s%s%s (%s)', indent, graph, sha, tag, subject, date)
-endfunction
+" Git functions moved to autoload/plug/git.vim
 
 function! s:append_ul(lnum, text)
   call append(a:lnum, ['', a:text, repeat('-', len(a:text))])
@@ -1946,7 +1765,7 @@ function! s:diff()
     endif
     call s:append_ul(2, origin ? 'Pending updates:' : 'Last update:')
     for [k, v] in plugs
-      let branch = s:git_origin_branch(v)
+      let branch = plug#git#origin_branch(v)
       if len(branch)
         let range = origin ? '..origin/'.branch : 'HEAD@{1}..'
         let cmd = ['git', 'log', '--graph', '--color=never', '--no-show-signature']
@@ -1957,7 +1776,7 @@ function! s:diff()
         let diff = s:system_chomp(cmd, v.dir)
         if !empty(diff)
           let ref = has_key(v, 'tag') ? (' (tag: '.v.tag.')') : has_key(v, 'commit') ? (' '.v.commit) : ''
-          call append(5, extend(['', '- '.k.':'.ref], map(s:lines(diff), 's:format_git_log(v:val)')))
+          call append(5, extend(['', '- '.k.':'.ref], map(s:lines(diff), 'plug#git#format_git_log(v:val)')))
           let cnts[origin] += 1
         endif
       endif
@@ -2021,7 +1840,7 @@ function! s:snapshot(force, ...) abort
   let names = sort(keys(filter(copy(g:plugs),
         \'has_key(v:val, "uri") && isdirectory(v:val.dir)')))
   for name in reverse(names)
-    let sha = has_key(g:plugs[name], 'commit') ? g:plugs[name].commit : s:git_revision(g:plugs[name].dir)
+    let sha = has_key(g:plugs[name], 'commit') ? g:plugs[name].commit : plug#git#revision(g:plugs[name].dir)
     if !empty(sha)
       call append(anchor, printf("silent! let g:plugs['%s'].commit = '%s'", name, sha))
       redraw
