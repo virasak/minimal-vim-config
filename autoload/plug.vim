@@ -61,13 +61,15 @@ let g:loaded_plug = 1
 let s:cpo_save = &cpo
 set cpo&vim
 
+" vim-plug now requires Vim 9.0+ or Neovim 0.9+ and Git 2.0+
+
 let s:plug_src = 'https://github.com/junegunn/vim-plug.git'
 let s:plug_tab = get(s:, 'plug_tab', -1)
 let s:plug_buf = get(s:, 'plug_buf', -1)
 let s:mac_gui = has('gui_macvim') && has('gui_running')
 let s:is_win = has('win32')
-let s:nvim = has('nvim-0.2') || (has('nvim') && exists('*jobwait') && !s:is_win)
-let s:vim8 = has('patch-8.0.0039') && exists('*job_start')
+let s:nvim = has('nvim')
+let s:vim8 = !s:nvim && has('job')
 if s:is_win && &shellslash
   set noshellslash
   let s:me = resolve(expand('<sfile>:p'))
@@ -235,15 +237,8 @@ function! s:define_commands()
   if !executable('git')
     return s:err('`git` executable not found. Most commands will not be available. To suppress this message, prepend `silent!` to `call plug#begin(...)`.')
   endif
-  if has('win32')
-  \ && &shellslash
-  \ && (&shell =~# 'cmd\(\.exe\)\?$' || s:is_powershell(&shell))
+  if has('win32') && &shellslash && (&shell =~# 'cmd\(\.exe\)\?$' || s:is_powershell(&shell))
     return s:err('vim-plug does not support shell, ' . &shell . ', when shellslash is set.')
-  endif
-  if !has('nvim')
-    \ && (has('win32') || has('win32unix'))
-    \ && !has('multi_byte')
-    return s:err('Vim needs +multi_byte feature on Windows to run shell commands. Enable +iconv for best results.')
   endif
   command! -nargs=* -bar -bang -complete=customlist,s:names PlugInstall call s:install(<bang>0, [<f-args>])
   command! -nargs=* -bar -bang -complete=customlist,s:names PlugUpdate  call s:update(<bang>0, [<f-args>])
@@ -359,7 +354,7 @@ function! plug#end()
       if !empty(types)
         augroup filetypedetect
         call s:source(s:rtp(plug), 'ftdetect/**/*.vim', 'after/ftdetect/**/*.vim')
-        if has('nvim-0.5.0')
+        if has('nvim')
           call s:source(s:rtp(plug), 'ftdetect/**/*.lua', 'after/ftdetect/**/*.lua')
         endif
         augroup END
@@ -372,10 +367,8 @@ function! plug#end()
 
   for [cmd, names] in items(lod.cmd)
     execute printf(
-    \ has('patch-7.4.1898')
-    \ ? 'command! -nargs=* -range -bang -complete=file %s call s:lod_cmd(%s, "<bang>", <line1>, <line2>, <q-args>, <q-mods> ,%s)'
-    \ : 'command! -nargs=* -range -bang -complete=file %s call s:lod_cmd(%s, "<bang>", <line1>, <line2>, <q-args>, %s)'
-    \ , cmd, string(cmd), string(names))
+    \ 'command! -nargs=* -range -bang -complete=file %s call s:lod_cmd(%s, "<bang>", <line1>, <line2>, <q-args>, <q-mods> ,%s)',
+    \ cmd, string(cmd), string(names))
   endfor
 
   for [map, names] in items(lod.map)
@@ -411,7 +404,7 @@ endfunction
 
 function! s:load_plugin(spec)
   call s:source(s:rtp(a:spec), 'plugin/**/*.vim', 'after/plugin/**/*.vim')
-  if has('nvim-0.5.0')
+  if has('nvim')
     call s:source(s:rtp(a:spec), 'plugin/**/*.lua', 'after/plugin/**/*.lua')
   endif
 endfunction
@@ -436,16 +429,8 @@ function! s:version_requirement(val, min)
   return 1
 endfunction
 
-function! s:git_version_requirement(...)
-  if !exists('s:git_version')
-    let s:git_version = map(split(split(s:system(['git', '--version']))[2], '\.'), 'str2nr(v:val)')
-  endif
-  return s:version_requirement(s:git_version, a:000)
-endfunction
-
 function! s:progress_opt(base)
-  return a:base && !s:is_win &&
-        \ s:git_version_requirement(1, 7, 1) ? '--progress' : ''
+  return a:base && !s:is_win ? '--progress' : ''
 endfunction
 
 function! s:rtp(spec)
@@ -564,7 +549,7 @@ endfunction
 
 function! s:doautocmd(...)
   if exists('#'.join(a:000, '#'))
-    execute 'doautocmd' ((v:version > 703 || has('patch442')) ? '<nomodeline>' : '') join(a:000)
+    execute 'doautocmd <nomodeline>' join(a:000)
   endif
 endfunction
 
@@ -631,7 +616,7 @@ function! s:lod(names, types, ...)
     let rtp = s:rtp(g:plugs[name])
     for dir in a:types
       call s:source(rtp, dir.'/**/*.vim')
-      if has('nvim-0.5.0')  " see neovim#14686
+      if has('nvim')
         call s:source(rtp, dir.'/**/*.lua')
       endif
     endfor
@@ -653,19 +638,11 @@ function! s:lod_ft(pat, names)
   call s:doautocmd('filetypeindent', 'FileType')
 endfunction
 
-if has('patch-7.4.1898')
-  function! s:lod_cmd(cmd, bang, l1, l2, args, mods, names)
-    call s:lod(a:names, ['ftdetect', 'after/ftdetect', 'plugin', 'after/plugin'])
-    call s:dobufread(a:names)
-    execute printf('%s %s%s%s %s', a:mods, (a:l1 == a:l2 ? '' : (a:l1.','.a:l2)), a:cmd, a:bang, a:args)
-  endfunction
-else
-  function! s:lod_cmd(cmd, bang, l1, l2, args, names)
-    call s:lod(a:names, ['ftdetect', 'after/ftdetect', 'plugin', 'after/plugin'])
-    call s:dobufread(a:names)
-    execute printf('%s%s%s %s', (a:l1 == a:l2 ? '' : (a:l1.','.a:l2)), a:cmd, a:bang, a:args)
-  endfunction
-endif
+function! s:lod_cmd(cmd, bang, l1, l2, args, mods, names)
+  call s:lod(a:names, ['ftdetect', 'after/ftdetect', 'plugin', 'after/plugin'])
+  call s:dobufread(a:names)
+  execute printf('%s %s%s%s %s', a:mods, (a:l1 == a:l2 ? '' : (a:l1.','.a:l2)), a:cmd, a:bang, a:args)
+endfunction
 
 function! s:lod_map(map, names, with_prefix, prefix)
   call s:lod(a:names, ['ftdetect', 'after/ftdetect', 'plugin', 'after/plugin'])
@@ -1024,7 +1001,7 @@ function! s:hash_match(a, b)
 endfunction
 
 function! s:disable_credential_helper()
-  return s:git_version_requirement(2) && get(g:, 'plug_disable_credential_helper', 1)
+  return get(g:, 'plug_disable_credential_helper', 1)
 endfunction
 
 function! s:checkout(spec)
@@ -1110,7 +1087,7 @@ function! s:update_impl(pull, force, args) abort
     return s:warn('echo', 'No plugin to '. (a:pull ? 'update' : 'install'))
   endif
 
-  if !s:is_win && s:git_version_requirement(2, 3)
+  if !s:is_win
     let s:git_terminal_prompt = exists('$GIT_TERMINAL_PROMPT') ? $GIT_TERMINAL_PROMPT : ''
     let $GIT_TERMINAL_PROMPT = 0
     for plug in values(todo)
@@ -1128,13 +1105,11 @@ function! s:update_impl(pull, force, args) abort
     endtry
   endif
 
-  if has('nvim') && !exists('*jobwait') && threads > 1
-    call s:warn('echom', '[vim-plug] Update Neovim for parallel installer')
-  endif
+  " Neovim 0.9+ is required, so we don't need to check for jobwait
 
   let use_job = s:nvim || s:vim8
   let python = (has('python') || has('python3')) && !use_job
-  let ruby = has('ruby') && !use_job && (v:version >= 703 || v:version == 702 && has('patch374')) && !(s:is_win && has('gui_running')) && threads > 1 && s:check_ruby()
+  let ruby = has('ruby') && !use_job && !(s:is_win && has('gui_running')) && threads > 1 && s:check_ruby()
 
   let s:update = {
     \ 'start':   reltime(),
@@ -1158,25 +1133,16 @@ function! s:update_impl(pull, force, args) abort
   let s:clone_opt = ['--origin', 'origin']
   if get(g:, 'plug_shallow', 1)
     call extend(s:clone_opt, ['--depth', '1'])
-    if s:git_version_requirement(1, 7, 10)
-      call add(s:clone_opt, '--no-single-branch')
-    endif
+    call add(s:clone_opt, '--no-single-branch')
   endif
 
   if has('win32unix') || has('wsl')
     call extend(s:clone_opt, ['-c', 'core.eol=lf', '-c', 'core.autocrlf=input'])
   endif
 
-  let s:submodule_opt = s:git_version_requirement(2, 8) ? ' --jobs='.threads : ''
+  let s:submodule_opt = ' --jobs='.threads
 
-  " Python version requirement (>= 2.7)
-  if python && !has('python3') && !ruby && !use_job && s:update.threads > 1
-    redir => pyv
-    silent python import platform; print platform.python_version()
-    redir END
-    let python = s:version_requirement(
-          \ map(split(split(pyv)[0], '\.'), 'str2nr(v:val)'), [2, 6])
-  endif
+  " Python version is always sufficient in Vim 9.0+
 
   if (python || ruby) && s:update.threads > 1
     try
@@ -2716,10 +2682,7 @@ function! s:diff()
       let branch = s:git_origin_branch(v)
       if len(branch)
         let range = origin ? '..origin/'.branch : 'HEAD@{1}..'
-        let cmd = ['git', 'log', '--graph', '--color=never']
-        if s:git_version_requirement(2, 10, 0)
-          call add(cmd, '--no-show-signature')
-        endif
+        let cmd = ['git', 'log', '--graph', '--color=never', '--no-show-signature']
         call extend(cmd, ['--pretty=format:%x01%h%x01%d%x01%s%x01%cr', range])
         if has_key(v, 'rtp')
           call extend(cmd, ['--', v.rtp])
