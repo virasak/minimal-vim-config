@@ -67,7 +67,6 @@ let s:plug_src = 'https://github.com/junegunn/vim-plug.git'
 let s:plug_tab = get(s:, 'plug_tab', -1)
 let s:plug_buf = get(s:, 'plug_buf', -1)
 let s:mac_gui = has('gui_macvim') && has('gui_running')
-let s:vim8 = has('job')
 let s:me = resolve(expand('<sfile>:p'))
 let s:base_spec = { 'branch': '', 'frozen': 0 }
 let s:TYPE = {
@@ -997,7 +996,6 @@ function! s:update_impl(pull, force, args) abort
     endtry
   endif
 
-  let use_job = s:vim8
 
   let s:update = {
     \ 'start':   reltime(),
@@ -1007,7 +1005,7 @@ function! s:update_impl(pull, force, args) abort
     \ 'pull':    a:pull,
     \ 'force':   a:force,
     \ 'new':     {},
-    \ 'threads': use_job ? min([len(todo), threads]) : 1,
+    \ 'threads': min([len(todo), threads]),
     \ 'bar':     '',
     \ 'fin':     0
   \ }
@@ -1031,7 +1029,7 @@ function! s:update_impl(pull, force, args) abort
   let s:submodule_opt = ' --jobs='.threads
 
   call s:update_vim()
-  while use_job && sync
+  while sync
     sleep 100m
     if s:update.fin
       break
@@ -1111,10 +1109,6 @@ function! s:mark_aborted(name, message)
 endfunction
 
 function! s:job_abort(cancel)
-  if !s:vim8 || !exists('s:jobs')
-    return
-  endif
-
   for [name, j] in items(s:jobs)
     silent! call job_stop(j.jobid)
     if j.new
@@ -1193,30 +1187,25 @@ function! s:spawn(name, spec, queue, opts)
   let argv = type(Item) == s:TYPE.funcref ? call(Item, [a:spec]) : Item
   let s:jobs[a:name] = job
 
-  if s:vim8
-    let cmd = join(map(copy(argv), 'plug#shellescape(v:val, {"script": 0})'))
-    if has_key(a:opts, 'dir')
-      let cmd = s:with_cd(cmd, a:opts.dir, 0)
-    endif
-    let argv = ['sh', '-c', cmd]
-    let jid = job_start(argv, {
-    \ 'out_cb':   function('s:job_cb', ['s:job_out_cb',  job]),
-    \ 'err_cb':   function('s:job_cb', ['s:job_out_cb',  job]),
-    \ 'exit_cb':  function('s:job_cb', ['s:job_exit_cb', job]),
-    \ 'err_mode': 'raw',
-    \ 'out_mode': 'raw'
-    \})
-    if job_status(jid) == 'run'
-      let job.jobid = jid
-    else
-      let job.running = 0
-      let job.error   = 1
-      let job.lines   = ['Failed to start job']
-    endif
+  let cmd = join(map(copy(argv), 'plug#shellescape(v:val, {"script": 0})'))
+  if has_key(a:opts, 'dir')
+    let cmd = s:with_cd(cmd, a:opts.dir, 0)
+  endif
+  let argv = ['sh', '-c', cmd]
+  let jid = job_start(argv, {
+  \ 'out_cb':   function('s:job_cb', ['s:job_out_cb',  job]),
+  \ 'err_cb':   function('s:job_cb', ['s:job_out_cb',  job]),
+  \ 'exit_cb':  function('s:job_cb', ['s:job_exit_cb', job]),
+  \ 'err_mode': 'raw',
+  \ 'out_mode': 'raw'
+  \})
+
+  if job_status(jid) == 'run'
+    let job.jobid = jid
   else
-    let job.lines = s:lines(call('s:system', has_key(a:opts, 'dir') ? [argv, a:opts.dir] : [argv]))
-    let job.error = v:shell_error != 0
     let job.running = 0
+    let job.error   = 1
+    let job.lines   = ['Failed to start job']
   endif
 endfunction
 
@@ -1305,7 +1294,7 @@ endfunction
 
 function! s:tick()
   let pull = s:update.pull
-  let prog = s:progress_opt(s:vim8)
+  let prog = s:progress_opt(1)
 while 1 " Without TCO, Vim stack is bound to explode
   if empty(s:update.todo)
     if empty(s:jobs) && !s:update.fin
