@@ -61,22 +61,15 @@ let g:loaded_plug = 1
 let s:cpo_save = &cpo
 set cpo&vim
 
-" vim-plug now requires Vim 9.0+ or Neovim 0.9+ and Git 2.0+
+" vim-plug now requires Vim 9.0+ or Neovim 0.9+ and Git 2.0+ on Unix-like systems
 
 let s:plug_src = 'https://github.com/junegunn/vim-plug.git'
 let s:plug_tab = get(s:, 'plug_tab', -1)
 let s:plug_buf = get(s:, 'plug_buf', -1)
 let s:mac_gui = has('gui_macvim') && has('gui_running')
-let s:is_win = has('win32')
 let s:nvim = has('nvim')
 let s:vim8 = !s:nvim && has('job')
-if s:is_win && &shellslash
-  set noshellslash
-  let s:me = resolve(expand('<sfile>:p'))
-  set shellslash
-else
-  let s:me = resolve(expand('<sfile>:p'))
-endif
+let s:me = resolve(expand('<sfile>:p'))
 let s:base_spec = { 'branch': '', 'frozen': 0 }
 let s:TYPE = {
 \   'string':  type(''),
@@ -87,12 +80,10 @@ let s:TYPE = {
 let s:loaded = get(s:, 'loaded', {})
 let s:triggers = get(s:, 'triggers', {})
 
-function! s:is_powershell(shell)
-  return a:shell =~# 'powershell\(\.exe\)\?$' || a:shell =~# 'pwsh\(\.exe\)\?$'
-endfunction
+" PowerShell detection removed - Windows not supported
 
 function! s:isabsolute(dir) abort
-  return a:dir =~# '^/' || (has('win32') && a:dir =~? '^\%(\\\|[A-Z]:\)')
+  return a:dir =~# '^/'
 endfunction
 
 function! s:git_dir(dir) abort
@@ -175,21 +166,9 @@ function! s:git_origin_branch(spec)
   return v:shell_error ? '' : result[-1]
 endfunction
 
-if s:is_win
-  function! s:plug_call(fn, ...)
-    let shellslash = &shellslash
-    try
-      set noshellslash
-      return call(a:fn, a:000)
-    finally
-      let &shellslash = shellslash
-    endtry
-  endfunction
-else
-  function! s:plug_call(fn, ...)
-    return call(a:fn, a:000)
-  endfunction
-endif
+function! s:plug_call(fn, ...)
+  return call(a:fn, a:000)
+endfunction
 
 function! s:plug_getcwd()
   return s:plug_call('getcwd')
@@ -236,9 +215,6 @@ function! s:define_commands()
   command! -nargs=+ -bar Plug call plug#(<args>)
   if !executable('git')
     return s:err('`git` executable not found. Most commands will not be available. To suppress this message, prepend `silent!` to `call plug#begin(...)`.')
-  endif
-  if has('win32') && &shellslash && (&shell =~# 'cmd\(\.exe\)\?$' || s:is_powershell(&shell))
-    return s:err('vim-plug does not support shell, ' . &shell . ', when shellslash is set.')
   endif
   command! -nargs=* -bar -bang -complete=customlist,s:names PlugInstall call s:install(<bang>0, [<f-args>])
   command! -nargs=* -bar -bang -complete=customlist,s:names PlugUpdate  call s:update(<bang>0, [<f-args>])
@@ -430,64 +406,24 @@ function! s:version_requirement(val, min)
 endfunction
 
 function! s:progress_opt(base)
-  return a:base && !s:is_win ? '--progress' : ''
+  return a:base ? '--progress' : ''
 endfunction
 
 function! s:rtp(spec)
   return s:path(a:spec.dir . get(a:spec, 'rtp', ''))
 endfunction
 
-if s:is_win
-  function! s:path(path)
-    return s:trim(substitute(a:path, '/', '\', 'g'))
-  endfunction
+function! s:path(path)
+  return s:trim(a:path)
+endfunction
 
-  function! s:dirpath(path)
-    return s:path(a:path) . '\'
-  endfunction
+function! s:dirpath(path)
+  return substitute(a:path, '[/\\]*$', '/', '')
+endfunction
 
-  function! s:is_local_plug(repo)
-    return a:repo =~? '^[a-z]:\|^[%~]'
-  endfunction
-
-  " Copied from fzf
-  function! s:wrap_cmds(cmds)
-    let cmds = [
-      \ '@echo off',
-      \ 'setlocal enabledelayedexpansion']
-    \ + (type(a:cmds) == type([]) ? a:cmds : [a:cmds])
-    \ + ['endlocal']
-    if has('iconv')
-      if !exists('s:codepage')
-        let s:codepage = libcallnr('kernel32.dll', 'GetACP', 0)
-      endif
-      return map(cmds, printf('iconv(v:val."\r", "%s", "cp%d")', &encoding, s:codepage))
-    endif
-    return map(cmds, 'v:val."\r"')
-  endfunction
-
-  function! s:batchfile(cmd)
-    let batchfile = s:plug_tempname().'.bat'
-    call writefile(s:wrap_cmds(a:cmd), batchfile)
-    let cmd = plug#shellescape(batchfile, {'shell': &shell, 'script': 0})
-    if s:is_powershell(&shell)
-      let cmd = '& ' . cmd
-    endif
-    return [batchfile, cmd]
-  endfunction
-else
-  function! s:path(path)
-    return s:trim(a:path)
-  endfunction
-
-  function! s:dirpath(path)
-    return substitute(a:path, '[/\\]*$', '/', '')
-  endfunction
-
-  function! s:is_local_plug(repo)
-    return a:repo[0] =~ '[/$~]'
-  endfunction
-endif
+function! s:is_local_plug(repo)
+  return a:repo[0] =~ '[/$~]'
+endfunction
 
 function! s:err(msg)
   echohl ErrorMsg
@@ -892,37 +828,22 @@ endfunction
 
 function! s:chsh(swap)
   let prev = [&shell, &shellcmdflag, &shellredir]
-  if !s:is_win
-    set shell=sh
-  endif
+  set shell=sh
   if a:swap
-    if s:is_powershell(&shell)
-      let &shellredir = '2>&1 | Out-File -Encoding UTF8 %s'
-    elseif &shell =~# 'sh' || &shell =~# 'cmd\(\.exe\)\?$'
-      set shellredir=>%s\ 2>&1
-    endif
+    set shellredir=>%s\ 2>&1
   endif
   return prev
 endfunction
 
 function! s:bang(cmd, ...)
-  let batchfile = ''
   try
     let [sh, shellcmdflag, shrd] = s:chsh(a:0)
-    " FIXME: Escaping is incomplete. We could use shellescape with eval,
-    "        but it won't work on Windows.
     let cmd = a:0 ? s:with_cd(a:cmd, a:1) : a:cmd
-    if s:is_win
-      let [batchfile, cmd] = s:batchfile(cmd)
-    endif
-    let g:_plug_bang = (s:is_win && has('gui_running') ? 'silent ' : '').'!'.escape(cmd, '#!%')
+    let g:_plug_bang = '!'.escape(cmd, '#!%')
     execute "normal! :execute g:_plug_bang\<cr>\<cr>"
   finally
     unlet g:_plug_bang
     let [&shell, &shellcmdflag, &shellredir] = [sh, shellcmdflag, shrd]
-    if s:is_win && filereadable(batchfile)
-      call delete(batchfile)
-    endif
   endtry
   return v:shell_error ? 'Exit status: ' . v:shell_error : ''
 endfunction
@@ -1087,14 +1008,12 @@ function! s:update_impl(pull, force, args) abort
     return s:warn('echo', 'No plugin to '. (a:pull ? 'update' : 'install'))
   endif
 
-  if !s:is_win
-    let s:git_terminal_prompt = exists('$GIT_TERMINAL_PROMPT') ? $GIT_TERMINAL_PROMPT : ''
-    let $GIT_TERMINAL_PROMPT = 0
-    for plug in values(todo)
-      let plug.uri = substitute(plug.uri,
-            \ '^https://git::@github\.com', 'https://github.com', '')
-    endfor
-  endif
+  let s:git_terminal_prompt = exists('$GIT_TERMINAL_PROMPT') ? $GIT_TERMINAL_PROMPT : ''
+  let $GIT_TERMINAL_PROMPT = 0
+  for plug in values(todo)
+    let plug.uri = substitute(plug.uri,
+          \ '^https://git::@github\.com', 'https://github.com', '')
+  endfor
 
   if !isdirectory(g:plug_home)
     try
@@ -1109,7 +1028,7 @@ function! s:update_impl(pull, force, args) abort
 
   let use_job = s:nvim || s:vim8
   let python = (has('python') || has('python3')) && !use_job
-  let ruby = has('ruby') && !use_job && !(s:is_win && has('gui_running')) && threads > 1 && s:check_ruby()
+  let ruby = has('ruby') && !use_job && threads > 1 && s:check_ruby()
 
   let s:update = {
     \ 'start':   reltime(),
@@ -1371,8 +1290,8 @@ function! s:spawn(name, spec, queue, opts)
     if has_key(a:opts, 'dir')
       let cmd = s:with_cd(cmd, a:opts.dir, 0)
     endif
-    let argv = s:is_win ? ['cmd', '/s', '/c', '"'.cmd.'"'] : ['sh', '-c', cmd]
-    let jid = job_start(s:is_win ? join(argv, ' ') : argv, {
+    let argv = ['sh', '-c', cmd]
+    let jid = job_start(argv, {
     \ 'out_cb':   function('s:job_cb', ['s:job_out_cb',  job]),
     \ 'err_cb':   function('s:job_cb', ['s:job_out_cb',  job]),
     \ 'exit_cb':  function('s:job_cb', ['s:job_exit_cb', job]),
@@ -2195,13 +2114,8 @@ function! plug#shellescape(arg, ...)
     return a:arg
   endif
   let opts = a:0 > 0 && type(a:1) == s:TYPE.dict ? a:1 : {}
-  let shell = get(opts, 'shell', s:is_win ? 'cmd.exe' : 'sh')
+  let shell = get(opts, 'shell', 'sh')
   let script = get(opts, 'script', 1)
-  if shell =~# 'cmd\(\.exe\)\?$'
-    return s:shellesc_cmd(a:arg, script)
-  elseif s:is_powershell(shell)
-    return s:shellesc_ps1(a:arg)
-  endif
   return s:shellesc_sh(a:arg)
 endfunction
 
@@ -2236,14 +2150,10 @@ endfunction
 
 function! s:with_cd(cmd, dir, ...)
   let script = a:0 > 0 ? a:1 : 1
-  let pwsh = s:is_powershell(&shell)
-  let cd = s:is_win && !pwsh ? 'cd /d' : 'cd'
-  let sep = pwsh ? ';' : '&&'
-  return printf('%s %s %s %s', cd, plug#shellescape(a:dir, {'script': script, 'shell': &shell}), sep, a:cmd)
+  return printf('cd %s && %s', plug#shellescape(a:dir, {'script': script, 'shell': &shell}), a:cmd)
 endfunction
 
 function! s:system(cmd, ...)
-  let batchfile = ''
   try
     let [sh, shellcmdflag, shrd] = s:chsh(1)
     if type(a:cmd) == s:TYPE.list
@@ -2254,24 +2164,15 @@ function! s:system(cmd, ...)
         return system(a:cmd)
       endif
       let cmd = join(map(copy(a:cmd), 'plug#shellescape(v:val, {"shell": &shell, "script": 0})'))
-      if s:is_powershell(&shell)
-        let cmd = '& ' . cmd
-      endif
     else
       let cmd = a:cmd
     endif
     if a:0 > 0
       let cmd = s:with_cd(cmd, a:1, type(a:cmd) != s:TYPE.list)
     endif
-    if s:is_win && type(a:cmd) != s:TYPE.list
-      let [batchfile, cmd] = s:batchfile(cmd)
-    endif
     return system(cmd)
   finally
     let [&shell, &shellcmdflag, &shellredir] = [sh, shellcmdflag, shrd]
-    if s:is_win && filereadable(batchfile)
-      call delete(batchfile)
-    endif
   endtry
 endfunction
 
@@ -2346,9 +2247,7 @@ endfunction
 
 function! s:rm_rf(dir)
   if isdirectory(a:dir)
-    return s:system(s:is_win
-    \ ? 'rmdir /S /Q '.plug#shellescape(a:dir)
-    \ : ['rm', '-rf', a:dir])
+    return s:system(['rm', '-rf', a:dir])
   endif
 endfunction
 
@@ -2622,19 +2521,12 @@ function! s:preview_commit()
     wincmd P
   endif
   setlocal previewwindow filetype=git buftype=nofile bufhidden=wipe nobuflisted modifiable
-  let batchfile = ''
   try
     let [sh, shellcmdflag, shrd] = s:chsh(1)
     let cmd = 'cd '.plug#shellescape(g:plugs[name].dir).' && '.command
-    if s:is_win
-      let [batchfile, cmd] = s:batchfile(cmd)
-    endif
     execute 'silent %!' cmd
   finally
     let [&shell, &shellcmdflag, &shellredir] = [sh, shellcmdflag, shrd]
-    if s:is_win && filereadable(batchfile)
-      call delete(batchfile)
-    endif
   endtry
   setlocal nomodifiable
   nnoremap <silent> <buffer> q :q<cr>
