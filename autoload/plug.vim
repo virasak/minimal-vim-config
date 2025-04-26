@@ -693,9 +693,7 @@ endfunction
 
 " Syntax function is now in syntax/vim-plug.vim
 
-function! s:lpad(str, len)
-  return a:str . repeat(' ', a:len - len(a:str))
-endfunction
+" Function removed - only used for buffer UI
 
 function! s:lines(msg)
   return split(a:msg, "[\r\n]")
@@ -813,10 +811,7 @@ function! s:bang(cmd, ...)
   return v:shell_error ? 'Exit status: ' . v:shell_error : ''
 endfunction
 
-function! s:regress_bar()
-  let bar = substitute(getline(2)[1:-2], '.*\zs=', 'x', '')
-  call s:progress_bar(2, bar, len(bar))
-endfunction
+" Function removed - only used for buffer UI
 
 function! s:is_updated(dir)
   return !empty(s:system_chomp(['git', 'log', '--pretty=format:%h', 'HEAD...HEAD@{1}'], a:dir))
@@ -865,12 +860,21 @@ function! s:do(pull, force, todo)
       else
         let error = 'Invalid hook type'
       endif
-      call s:switch_in()
-      call setline(4, empty(error) ? (getline(4) . 'OK')
-                                 \ : ('x' . getline(4)[1:] . error))
+      " Check if we're using dialog UI
+      if exists('*popup_create') && plug#dialog#is_open()
+        " Update the dialog
+        let status = empty(error) ? 'done' : 'error'
+        let message = empty(error) ? 'Post-update hook: OK' : 'Post-update hook: ' . error
+        call plug#dialog#update_plugin(name, status, message)
+      else
+        " Fall back to buffer UI
+        call s:switch_in()
+        call setline(4, empty(error) ? (getline(4) . 'OK')
+                                   \ : ('x' . getline(4)[1:] . error))
+      endif
+
       if !empty(error)
         call add(s:update.errors, name)
-        call s:regress_bar()
       endif
       cd -
     endif
@@ -1046,10 +1050,7 @@ function! s:dialog_finished(result)
   endif
 endfunction
 
-function! s:log4(name, msg)
-  call setline(4, printf('- %s (%s)', a:msg, a:name))
-  redraw
-endfunction
+" Function removed - only used for buffer UI
 
 function! s:update_finish()
   if exists('s:git_terminal_prompt')
@@ -1505,9 +1506,7 @@ function! s:glob_dir(path)
   return map(filter(s:glob(a:path, '**'), 'isdirectory(v:val)'), 's:dirpath(v:val)')
 endfunction
 
-function! s:progress_bar(line, bar, total)
-  call setline(a:line, '[' . s:lpad(a:bar, a:total) . ']')
-endfunction
+" Function removed - only used for buffer UI
 
 function! s:compare_git_uri(a, b)
   " See `git help clone'
