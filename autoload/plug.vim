@@ -98,7 +98,6 @@ function! plug#begin(...)
   let s:triggers = {}
 
   call s:define_commands()
-  return 1
 endfunction
 
 function! s:define_commands()

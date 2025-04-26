@@ -27,8 +27,8 @@ function! plug#dialog#new(title, type, plugins, callback)
   let s:dialog.title = a:title
   let s:dialog.callback = a:callback
 
-  " Calculate dialog size based on terminal
-  let s:dialog.width = min([max([80, &columns - 20]), &columns - 4])
+  " Calculate dialog size based on terminal - use 75% of window width
+  let s:dialog.width = float2nr(&columns * 0.75)
   let s:dialog.height = min([max([20, &lines - 10]), &lines - 4])
 
   " Initialize content
@@ -180,7 +180,8 @@ endfunction
 
 " Create a progress bar string
 function! s:create_progress_bar(current, total)
-  let width = s:dialog.width - 10
+  " Use 60% of dialog width for the progress bar
+  let width = float2nr(s:dialog.width * 0.6) - 2  " -2 for the brackets
   let filled = a:current * width / max([a:total, 1])
   let empty = width - filled
 
@@ -205,7 +206,7 @@ function! plug#dialog#add_summary(message, type)
 
   " Add a separator line
   call add(s:dialog.content, '')
-  call add(s:dialog.content, repeat('─', s:dialog.width - 4))
+  call add(s:dialog.content, repeat('─', s:dialog.width - 6))
 
   " Add the summary message with appropriate styling
   let prefix = a:type == 'error' ? '✗ ' : '✓ '
