@@ -967,16 +967,7 @@ function! s:names(...)
   return sort(filter(keys(g:plugs), 'stridx(v:val, a:1) == 0 && s:is_managed(v:val)'))
 endfunction
 
-function! s:check_ruby()
-  silent! ruby require 'thread'; VIM::command("let g:plug_ruby = '#{RUBY_VERSION}'")
-  if !exists('g:plug_ruby')
-    redraw!
-    return s:warn('echom', 'Warning: Ruby interface is broken')
-  endif
-  let ruby_version = split(g:plug_ruby, '\.')
-  unlet g:plug_ruby
-  return s:version_requirement(ruby_version, [1, 8, 7])
-endfunction
+" Ruby support removed - using only Vim's job control API
 
 function! s:update_impl(pull, force, args) abort
   let sync = index(a:args, '--sync') >= 0 || has('vim_starting')
@@ -1010,7 +1001,6 @@ function! s:update_impl(pull, force, args) abort
 
   let use_job = s:vim8
   let python = (has('python') || has('python3')) && !use_job
-  let ruby = has('ruby') && !use_job && threads > 1 && s:check_ruby()
 
   let s:update = {
     \ 'start':   reltime(),
@@ -1020,7 +1010,7 @@ function! s:update_impl(pull, force, args) abort
     \ 'pull':    a:pull,
     \ 'force':   a:force,
     \ 'new':     {},
-    \ 'threads': (python || ruby || use_job) ? min([len(todo), threads]) : 1,
+    \ 'threads': (python || use_job) ? min([len(todo), threads]) : 1,
     \ 'bar':     '',
     \ 'fin':     0
   \ }
@@ -1043,19 +1033,15 @@ function! s:update_impl(pull, force, args) abort
 
   let s:submodule_opt = ' --jobs='.threads
 
-  " Python version is always sufficient in Vim 9.0+
+  " Use Vim's job control API when possible, fallback to Python
 
-  if (python || ruby) && s:update.threads > 1
+  if python && s:update.threads > 1
     try
       let imd = &imd
       if s:mac_gui
         set noimd
       endif
-      if ruby
-        call s:update_ruby()
-      else
-        call s:update_python()
-      endif
+      call s:update_python()
     catch
       let lines = getline(4, '$')
       let printed = {}
@@ -1527,7 +1513,7 @@ class Buffer(object):
       pass
 
 class Command(object):
-  CD = 'cd /d' if G_IS_WIN else 'cd'
+  CD = 'cd'
 
   def __init__(self, cmd, cmd_dir=None, timeout=60, cb=None, clean=None):
     self.cmd = cmd
@@ -1863,7 +1849,6 @@ function! s:update_ruby()
   require 'fileutils'
   require 'timeout'
   running = true
-  iswin = VIM::evaluate('s:is_win').to_i == 1
   pull  = VIM::evaluate('s:update.pull').to_i == 1
   base  = VIM::evaluate('g:plug_home')
   all   = VIM::evaluate('s:update.todo')
@@ -1871,7 +1856,7 @@ function! s:update_ruby()
   tries = VIM::evaluate('get(g:, "plug_retries", 2)') + 1
   nthr  = VIM::evaluate('s:update.threads').to_i
   maxy  = VIM::evaluate('winheight(".")').to_i
-  cd    = iswin ? 'cd /d' : 'cd'
+  cd    = 'cd'
   tot   = VIM::evaluate('len(s:update.todo)') || 0
   bar   = ''
   skip  = 'Already installed'
@@ -1918,26 +1903,16 @@ function! s:update_ruby()
     begin
       tried += 1
       timeout += limit
-      fd = nil
       data = ''
-      if iswin
-        Timeout::timeout(timeout) do
-          tmp = VIM::evaluate('tempname()')
-          system("(#{cmd}) > #{tmp}")
-          data = File.read(tmp).chomp
-          File.unlink tmp rescue nil
-        end
-      else
-        fd = IO.popen(cmd).extend(PlugStream)
-        first_line = true
-        log_prob = 1.0 / nthr
-        while line = Timeout::timeout(timeout) { fd.get_line }
-          data << line
-          log.call name, line.chomp, type if name && (first_line || rand < log_prob)
-          first_line = false
-        end
-        fd.close
+      fd = IO.popen(cmd).extend(PlugStream)
+      first_line = true
+      log_prob = 1.0 / nthr
+      while line = Timeout::timeout(timeout) { fd.get_line }
+        data << line
+        log.call name, line.chomp, type if name && (first_line || rand < log_prob)
+        first_line = false
       end
+      fd.close
       [$? == 0, data.chomp]
     rescue Timeout::Error, Interrupt => e
       if fd && !fd.closed?
@@ -1990,7 +1965,7 @@ function! s:update_ruby()
           exists = File.directory? dir
           ok, result =
             if exists
-              chdir = "#{cd} #{iswin ? dir : esc(dir)}"
+              chdir = "cd #{esc(dir}"
               ret, data = bt.call "#{chdir} && git rev-parse --abbrev-ref HEAD 2>&1 && git config -f .git/config remote.origin.url", nil, nil, nil
               current_uri = data.lines.to_a.last
               if !ret
