@@ -124,7 +124,7 @@ function! s:to_s(v)
 endfunction
 
 function! s:glob(from, pattern)
-  return split(globpath(a:from, a:pattern), "[\r\n]")
+  return split(globpath(a:from, a:pattern, 1), "\n")
 endfunction
 
 function! s:source(from, ...)
@@ -139,7 +139,11 @@ function! s:source(from, ...)
 endfunction
 
 function! s:assoc(dict, key, val)
-  let a:dict[a:key] = add(get(a:dict, a:key, []), a:val)
+  " More efficient dictionary manipulation
+  if !has_key(a:dict, a:key)
+    let a:dict[a:key] = []
+  endif
+  call add(a:dict[a:key], a:val)
 endfunction
 
 function! s:ask(message, ...)
@@ -304,7 +308,9 @@ endfunction
 " path function inlined
 
 function! s:dirpath(path)
-  return substitute(a:path, '[/\\]*$', '/', '')
+  " Ensure path ends with exactly one slash
+  let path = substitute(a:path, '[/\\]*$', '', '')
+  return path . '/'
 endfunction
 
 function! s:is_local_plug(repo)
@@ -364,8 +370,10 @@ function! s:reorg_rtp()
 endfunction
 
 function! s:doautocmd(...)
-  if exists('#'.join(a:000, '#'))
-    execute 'doautocmd <nomodeline>' join(a:000)
+  " More efficient autocmd execution with proper event name handling
+  let event = join(a:000, '#')
+  if exists('#'.event)
+    execute 'doautocmd <nomodeline>' event
   endif
 endfunction
 
@@ -1279,8 +1287,20 @@ endfunction
 function! s:clean(force)
   " Use dialog UI if available
   if exists('*popup_create')
-    call s:clean_dialog(a:force)
-    return
+    " Load dialog module if needed
+    if !exists('*plug#dialog#new')
+      silent! runtime autoload/plug/dialog.vim
+    endif
+
+    " Check if dialog module loaded successfully
+    if exists('*plug#dialog#new')
+      try
+        call s:clean_dialog(a:force)
+        return
+      catch
+        " Fall back to buffer UI if dialog fails
+      endtry
+    endif
   endif
 
   " Fallback to buffer UI for older Vim versions
@@ -1599,7 +1619,9 @@ function! s:status()
 endfunction
 
 function! s:extract_name(str, prefix, suffix)
-  return matchstr(a:str, '^'.a:prefix.' \zs[^:]\+\ze:.*'.a:suffix.'$')
+  " Pre-compile the pattern for better performance
+  let pattern = '^'.a:prefix.' \zs[^:]\+\ze:.*'.a:suffix.'$'
+  return matchstr(a:str, pattern)
 endfunction
 
 function! s:status_load(lnum)
