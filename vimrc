@@ -16,7 +16,6 @@ set hlsearch
 
 # UI settings
 set t_Co=256
-set columns=145
 set laststatus=2
 
 # Colors and appearance
@@ -24,6 +23,7 @@ set background=dark
 if has('gui_running')
   set guifont=JetBrainsMonoNFM-Regular:h14
   set guioptions=
+  set columns=145
 endif
 
 colorscheme tokyonight
