@@ -1,3 +1,6 @@
+vim9script
+
+# Basic settings
 set nocompatible
 set noswapfile
 set nobackup
@@ -12,9 +15,11 @@ set hidden
 set incsearch
 set hlsearch
 
+# UI settings
 set columns=145
 set laststatus=2
 
+# Colors and appearance
 set background=dark
 if has('gui_running')
   set guifont=JetBrainsMonoNFM-Regular:h14
@@ -22,12 +27,17 @@ if has('gui_running')
   set t_Co=256
 endif
 
-colorschem habamax
+colorscheme habamax
 
-let g:plugins = [ "https://github.com/preservim/nerdtree", "https://github.com/tpope/vim-surround", "https://github.com/itchyny/lightline.vim" ]
+# Plugin configuration
+g:plugins = [
+  'https://github.com/preservim/nerdtree',
+  'https://github.com/tpope/vim-surround',
+  'https://github.com/itchyny/lightline.vim'
+]
 
-let g:mapleader=' '
+# Key mappings
+g:mapleader = ' '
 
 nnoremap <Leader>e :NERDTreeToggle<CR>
 nnoremap <Leader>E :NERDTreeFind<CR>
-
