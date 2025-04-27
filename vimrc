@@ -24,11 +24,7 @@ endif
 
 colorschem habamax
 
-call plug#begin()
-  Plug 'preservim/nerdtree'
-  Plug 'tpope/vim-surround'
-  Plug 'itchyny/lightline.vim'
-call plug#end()
+let g:plugins = [ "https://github.com/preservim/nerdtree", "https://github.com/tpope/vim-surround", "https://github.com/itchyny/lightline.vim" ]
 
 let g:mapleader=' '
 
