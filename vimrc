@@ -24,15 +24,17 @@ if has('gui_running')
   set guifont=JetBrainsMonoNFM-Regular:h14
   set guioptions=
   set columns=145
+  colorscheme zaibatsu
+else
+  colorscheme tokyonight
 endif
-
-colorscheme tokyonight
 
 # Plugin configuration
 g:plugins = [
   'https://github.com/preservim/nerdtree',
   'https://github.com/tpope/vim-surround',
   'https://github.com/itchyny/lightline.vim',
+  "https://github.com/tpope/vim-fugitive"
 ]
 
 # Key mappings
