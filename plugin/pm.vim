@@ -1,25 +1,36 @@
 vim9script
-# pm.vim - Stupidly Simple Vim plugin manager
-# Author: Bryce Vandegrift <https://brycevandegrift.xyz>
-# Version: 0.7.2
+#=============================================================================
+# This is a vim9script variation of the original work
+# Original work: pm.vim@0.7.2 - Stupidly Simple Vim plugin manager
+# Original author: Bryce Vandegrift <https://brycevandegrift.xyz>
+#=============================================================================
 
+# Prevent loading twice
 if exists('g:pm_loaded') || &cp || v:version < 900
 	finish
 endif
 g:pm_loaded = 1
 
+#=============================================================================
+# Configuration
+#=============================================================================
+
+# Set default plugin installation path
 if !exists('g:pm_path')
-	g:pm_path = trim(system('echo $HOME/.vim/pack/plugins/start/'))
+	g:pm_path = expand('$HOME/.vim/pack/plugins/start/')
 endif
 
+# Create plugin directory if it doesn't exist
 if !isdirectory(g:pm_path)
 	silent execute '!mkdir -p ' .. g:pm_path
 endif
 
+# Initialize plugin list if not defined
 if !exists('g:plugins')
 	g:plugins = []
 endif
 
+# Initialize hook arrays if not defined
 if !exists('g:post_download_hooks')
 	g:post_download_hooks = []
 endif
@@ -28,13 +39,17 @@ if !exists('g:post_update_hooks')
 	g:post_update_hooks = []
 endif
 
-# Takes a git url and returns base repo name
-def NameFromGit(str: string): string
-	var split_url = split(substitute(str, '\.git$', '', ''), '/')
-	return split_url[-1]
+#=============================================================================
+# Helper Functions
+#=============================================================================
+
+# Extract repository name from a git URL
+def NameFromGit(url: string): string
+	# Remove .git suffix if present and get the last part of the path
+	return fnamemodify(substitute(url, '\.git$', '', ''), ':t')
 enddef
 
-# Checks if val is not in list
+# Check if a value is not in a list
 def NotInList(val: string, list: list<string>): bool
 	for item in list
 		if match(item, val) != -1
@@ -44,88 +59,188 @@ def NotInList(val: string, list: list<string>): bool
 	return true
 enddef
 
-# Runs helptags on doc files
-def UpdateDocs(item: string)
-	if isdirectory(g:pm_path .. item .. '/doc')
-		execute 'helptags ' .. g:pm_path .. item .. '/doc'
-		echom 'Adding docs for ' .. item .. '...'
+# Generate helptags for plugin documentation
+def UpdateDocs(plugin_name: string)
+	var doc_dir = g:pm_path .. plugin_name .. '/doc'
+	if isdirectory(doc_dir)
+		execute 'helptags ' .. doc_dir
+		echom 'Adding docs for ' .. plugin_name .. '...'
 	endif
 enddef
 
+#=============================================================================
+# Plugin Management Functions
+#=============================================================================
+
+# Clone a single plugin
 def ClonePlugin(url: string)
+	var plugin_name = NameFromGit(url)
+
+	# Check if plugin already exists
+	if isdirectory(g:pm_path .. plugin_name)
+		echom 'Plugin ' .. plugin_name .. ' already installed'
+		return
+	endif
+
 	echom 'Cloning ' .. url .. '...'
-	execute '!git -C ' .. g:pm_path .. ' clone ' .. url
-	UpdateDocs(NameFromGit(url))
+	var cmd = '!git -C ' .. shellescape(g:pm_path) .. ' clone ' .. shellescape(url)
+	execute cmd
+
+	# Generate helptags if documentation exists
+	UpdateDocs(plugin_name)
 	echom 'Done!'
 enddef
 
+# Download all plugins defined in g:plugins
 def DownloadPlugins()
 	echom 'Downloading plugins...'
 	if empty(g:plugins)
-		echom 'No plugins defined!'
+		echom 'No plugins defined! Add plugins to g:plugins list.'
 		return
 	endif
-	for item in g:plugins
-		execute '!git -C ' .. g:pm_path .. ' clone ' .. item
-		UpdateDocs(NameFromGit(item))
+
+	var count = 0
+	for url in g:plugins
+		var plugin_name = NameFromGit(url)
+
+		# Skip if already installed
+		if isdirectory(g:pm_path .. plugin_name)
+			echom 'Plugin ' .. plugin_name .. ' already installed, skipping'
+			continue
+		endif
+
+		execute '!git -C ' .. shellescape(g:pm_path) .. ' clone ' .. shellescape(url)
+		UpdateDocs(plugin_name)
+		count += 1
 	endfor
+
+	# Run post-download hooks if any
 	if !empty(g:post_download_hooks)
 		echom 'Running post download hooks...'
-		for item in g:post_download_hooks
-			execute item
+		for hook in g:post_download_hooks
+			execute hook
 		endfor
 	endif
-	echom 'Done!'
+
+	echom 'Done! ' .. count .. ' plugin(s) installed.'
 enddef
 
+# List all installed plugins
 def ListPlugins()
 	echom 'Installed plugins:'
+
+	# Get all directories in the plugin path
 	var paths = globpath(g:pm_path, '*', 0, 1)
 	filter(paths, (_, val) => isdirectory(val))
-	map(paths, (_, val) => split(val, '/'))
-	map(paths, (_, val) => get(val, -1))
-	for item in paths
-		echom item
-	endfor
-enddef
 
-def UpdatePlugins()
-	echom 'Updating plugins...'
-	var paths = globpath(g:pm_path, '*', 0, 1)
-	filter(paths, (_, val) => isdirectory(val))
-	for item in paths
-		execute '!git -C ' .. item .. ' pull'
-	endfor
-	if !empty(g:post_update_hooks)
-		echom 'Running post update hooks...'
-		for item in g:post_update_hooks
-			execute item
-		endfor
-	endif
-	echom 'Done!'
-enddef
+	# Extract just the plugin names
+	var plugin_names = mapnew(paths, (_, val) => fnamemodify(val, ':t'))
 
-def PurgePlugins()
-	echom 'Purging plugins...'
-	if empty(g:plugins)
-		echom 'No plugins defined!'
+	if empty(plugin_names)
+		echom '  No plugins installed'
 		return
 	endif
-	# Lots of filtering and mapping
+
+	# Display each plugin
+	for name in plugin_names
+		echom '  - ' .. name
+	endfor
+enddef
+
+# Update all installed plugins
+def UpdatePlugins()
+	echom 'Updating plugins...'
+
+	# Get all plugin directories
 	var paths = globpath(g:pm_path, '*', 0, 1)
 	filter(paths, (_, val) => isdirectory(val))
-	map(paths, (_, val) => split(val, '/'))
-	map(paths, (_, val) => get(val, -1))
-	var plugs = mapnew(g:plugins[0 : ], (_, val) => NameFromGit(val))
-	filter(paths, (_, val) => NotInList(val, plugs))
-	for item in paths
-		execute '!rm -rf ' .. g:pm_path .. '/' .. item
+
+	if empty(paths)
+		echom 'No plugins installed'
+		return
+	endif
+
+	var updated_count = 0
+
+	# Update each plugin
+	for path in paths
+		var plugin_name = fnamemodify(path, ':t')
+		echom 'Updating ' .. plugin_name .. '...'
+
+		# Pull latest changes
+		execute '!git -C ' .. shellescape(path) .. ' pull'
+
+		# Update helptags
+		UpdateDocs(plugin_name)
+		updated_count += 1
 	endfor
+
+	# Run post-update hooks if any
+	if !empty(g:post_update_hooks)
+		echom 'Running post update hooks...'
+		for hook in g:post_update_hooks
+			execute hook
+		endfor
+	endif
+
+	echom 'Done! ' .. updated_count .. ' plugin(s) updated.'
+enddef
+
+# Remove plugins that are not in the g:plugins list
+def PurgePlugins()
+	echom 'Purging plugins...'
+
+	if empty(g:plugins)
+		echom 'No plugins defined in g:plugins list!'
+		return
+	endif
+
+	# Get all installed plugin directories
+	var paths = globpath(g:pm_path, '*', 0, 1)
+	filter(paths, (_, val) => isdirectory(val))
+
+	if empty(paths)
+		echom 'No plugins installed'
+		return
+	endif
+
+	# Get names of installed plugins
+	var installed_names = mapnew(paths, (_, val) => fnamemodify(val, ':t'))
+
+	# Get names of plugins that should be kept
+	var keep_names = mapnew(g:plugins[0 : ], (_, val) => NameFromGit(val))
+
+	# Find plugins to remove (those not in the keep list)
+	var to_remove = []
+	var remove_names = []
+
+	for idx in range(len(installed_names))
+		if NotInList(installed_names[idx], keep_names)
+			add(to_remove, paths[idx])
+			add(remove_names, installed_names[idx])
+		endif
+	endfor
+
+	# Remove unwanted plugins
+	if empty(to_remove)
+		echom 'No plugins to purge'
+	else
+		echom 'Removing plugins: ' .. join(remove_names, ', ')
+		for path in to_remove
+			execute '!rm -rf ' .. shellescape(path)
+		endfor
+		echom 'Removed ' .. len(to_remove) .. ' plugin(s)'
+	endif
+
 	echom 'Done!'
 enddef
 
-command! -nargs=1 ClonePlugin ClonePlugin(<args>)
-command! -nargs=0 DownloadPlugins DownloadPlugins()
-command! -nargs=0 ListPlugins ListPlugins()
-command! -nargs=0 PurgePlugins PurgePlugins()
-command! -nargs=0 UpdatePlugins UpdatePlugins()
+#=============================================================================
+# Commands
+#=============================================================================
+
+command! -nargs=1 -complete=file ClonePlugin ClonePlugin(<args>)
+command! -nargs=0 -bar DownloadPlugins DownloadPlugins()
+command! -nargs=0 -bar ListPlugins ListPlugins()
+command! -nargs=0 -bar PurgePlugins PurgePlugins()
+command! -nargs=0 -bar UpdatePlugins UpdatePlugins()
