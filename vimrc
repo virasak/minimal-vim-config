@@ -1,7 +1,6 @@
 vim9script
 
 # Basic settings
-set nocompatible
 set noswapfile
 set nobackup
 set autoindent
@@ -16,6 +15,7 @@ set incsearch
 set hlsearch
 
 # UI settings
+set t_Co=256
 set columns=145
 set laststatus=2
 
@@ -24,16 +24,15 @@ set background=dark
 if has('gui_running')
   set guifont=JetBrainsMonoNFM-Regular:h14
   set guioptions=
-  set t_Co=256
 endif
 
-colorscheme habamax
+colorscheme tokyonight
 
 # Plugin configuration
 g:plugins = [
   'https://github.com/preservim/nerdtree',
   'https://github.com/tpope/vim-surround',
-  'https://github.com/itchyny/lightline.vim'
+  'https://github.com/itchyny/lightline.vim',
 ]
 
 # Key mappings
