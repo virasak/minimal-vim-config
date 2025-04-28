@@ -1,6 +1,6 @@
 vim9script
 #=============================================================================
-# This is a vim9script variation of the original work
+# This is a variation of the original work
 # Original work: pm.vim@0.7.2 - Stupidly Simple Vim plugin manager
 # Original author: Bryce Vandegrift <https://brycevandegrift.xyz>
 #=============================================================================
