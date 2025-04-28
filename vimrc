@@ -30,12 +30,13 @@ else
 endif
 
 syntax on
+
 # Plugin configuration
 g:plugins = [
   'https://github.com/preservim/nerdtree',
   'https://github.com/tpope/vim-surround',
   'https://github.com/itchyny/lightline.vim',
-  "https://github.com/tpope/vim-fugitive"
+  'https://github.com/tpope/vim-fugitive'
 ]
 
 # Key mappings
