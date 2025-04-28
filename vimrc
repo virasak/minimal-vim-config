@@ -29,6 +29,7 @@ else
   colorscheme tokyonight
 endif
 
+syntax on
 # Plugin configuration
 g:plugins = [
   'https://github.com/preservim/nerdtree',
