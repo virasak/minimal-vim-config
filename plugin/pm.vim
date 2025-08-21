@@ -26,10 +26,6 @@ endif
 # Initialize plugin list if not defined
 var plugins = get(g:, 'plugins', [])
 
-# Initialize hook arrays if not defined
-var post_download_hooks = get(g:, 'post_download_hooks', [])
-var post_update_hooks = get(g:, 'post_update_hooks', [])
-
 #=============================================================================
 # Helper Functions
 #=============================================================================
@@ -95,17 +91,6 @@ def DownloadPlugins()
 		count += 1
 	endfor
 
-	# Run post-download hooks if any
-	if !empty(post_download_hooks)
-		echom 'Running post download hooks...'
-		for hook in post_download_hooks
-			execute hook
-		endfor
-	endif
-
-	echom 'Done! ' .. count .. ' plugin(s) installed.'
-enddef
-
 # List all installed plugins
 def ListPlugins()
 	echom 'Installed plugins:'
@@ -155,14 +140,6 @@ def UpdatePlugins()
 		UpdateDocs(plugin_name)
 		updated_count += 1
 	endfor
-
-	# Run post-update hooks if any
-	if !empty(post_update_hooks)
-		echom 'Running post update hooks...'
-		for hook in post_update_hooks
-			execute hook
-		endfor
-	endif
 
 	echom 'Done! ' .. updated_count .. ' plugin(s) updated.'
 enddef
