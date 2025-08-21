@@ -40,16 +40,6 @@ def NameFromGit(url: string): string
 	return fnamemodify(substitute(url, '\.git$', '', ''), ':t')
 enddef
 
-# Check if a value is not in a list
-def NotInList(val: string, list: list<string>): bool
-	for item in list
-		if match(item, val) != -1
-			return false
-		endif
-	endfor
-	return true
-enddef
-
 # Generate helptags for plugin documentation
 def UpdateDocs(plugin_name: string)
 	var doc_dir = pm_path .. plugin_name .. '/doc'
@@ -206,7 +196,7 @@ def PurgePlugins()
 	var remove_names = []
 
 	for idx in range(len(installed_names))
-		if NotInList(installed_names[idx], keep_names)
+		if !(installed_names[idx] in keep_names)
 			add(to_remove, paths[idx])
 			add(remove_names, installed_names[idx])
 		endif
