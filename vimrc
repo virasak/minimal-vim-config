@@ -13,6 +13,8 @@ set number
 set hidden
 set incsearch
 set hlsearch
+set termguicolors
+set visualbell t_vb=
 
 # UI settings
 set t_Co=256
@@ -24,7 +26,7 @@ if has('gui_running')
   set guifont=JetBrainsMonoNFM-Regular:h14
   set guioptions=
   set columns=145
-  colorscheme zaibatsu
+  colorscheme habamax
 else
   colorscheme tokyonight
 endif
