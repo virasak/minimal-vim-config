@@ -44,5 +44,6 @@ g:plugins = [
 # Key mappings
 g:mapleader = ' '
 
-nnoremap <Leader>e :NERDTreeToggle<CR>
+nnoremap <Leader>e :NERDTreeFocus<CR>
 nnoremap <Leader>E :NERDTreeFind<CR>
+nnoremap <Leader><Leader> :NERDTreeToggle<CR>
