@@ -90,6 +90,7 @@ def DownloadPlugins()
 		UpdateDocs(plugin_name)
 		count += 1
 	endfor
+enddef
 
 # List all installed plugins
 def ListPlugins()
